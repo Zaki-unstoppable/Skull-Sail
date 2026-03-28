@@ -1,0 +1,15 @@
+{
+  "name": "pirate3d-asset-proxy",
+  "version": "1.0.0",
+  "description": "Lightweight proxy server for the Pirate 3D asset pipeline",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "node-fetch": "2"
+  }
+}

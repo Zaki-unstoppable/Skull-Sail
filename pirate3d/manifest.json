@@ -1,0 +1,40 @@
+{
+  "version": "1.0.0",
+  "generated": "2026-03-26",
+  "description": "Curated asset catalog for Skull & Sail 3D. Runtime uses fallback geometry keyed by these entries. External sources listed for future ingest-mode imports.",
+  "assets": {
+    "fort_tower":      { "displayName": "Fort Tower",       "role": "hero",       "assetRole": "fort_landmark",      "fallback": "wall_section",    "scaleHint": 3.0,  "clearRadius": 24, "tags": ["fort","stone","landmark"] },
+    "castle_ruin":     { "displayName": "Castle Ruin",      "role": "hero",       "assetRole": "castle_landmark",    "fallback": "broken_column",   "scaleHint": 3.0,  "clearRadius": 24, "tags": ["ruin","stone","landmark"] },
+    "shipwreck_hull":  { "displayName": "Shipwreck Hull",   "role": "hero",       "assetRole": "shipwreck_landmark", "fallback": "shipwreck_piece", "scaleHint": 3.0,  "clearRadius": 30, "tags": ["shipwreck","wood","landmark"] },
+    "village_hall":    { "displayName": "Village Hall",      "role": "hero",       "assetRole": "village_landmark",   "fallback": "hut",             "scaleHint": 3.0,  "clearRadius": 21, "tags": ["village","wood","landmark"] },
+    "lighthouse":      { "displayName": "Lighthouse",       "role": "hero",       "assetRole": "navigation_landmark","fallback": "torch",           "scaleHint": 4.0,  "clearRadius": 18, "tags": ["lighthouse","stone","landmark"] },
+    "dock_main":       { "displayName": "Main Dock",        "role": "hero",       "assetRole": "dock_structure",     "fallback": "dock_section",    "scaleHint": 3.0,  "clearRadius": 24, "tags": ["dock","wood","structure"] },
+
+    "wall_section":    { "displayName": "Stone Wall",       "role": "structural", "assetRole": "defense_wall",       "fallback": "wall_section",    "scaleHint": 3.0,  "clearRadius": 9,  "tags": ["fort","stone","wall"] },
+    "cannon":          { "displayName": "Deck Cannon",      "role": "structural", "assetRole": "defense_weapon",     "fallback": "cannon",          "scaleHint": 2.5,  "clearRadius": 6,  "tags": ["cannon","metal","military"] },
+    "hut":             { "displayName": "Thatched Hut",     "role": "structural", "assetRole": "village_hut",        "fallback": "hut",             "scaleHint": 3.0,  "clearRadius": 12, "tags": ["village","wood","building"] },
+    "dock_section":    { "displayName": "Dock Platform",    "role": "structural", "assetRole": "dock_structure",     "fallback": "dock_section",    "scaleHint": 3.0,  "clearRadius": 9,  "tags": ["dock","wood","structure"] },
+    "workbench":       { "displayName": "Workbench",        "role": "structural", "assetRole": "workshop_furniture", "fallback": "workbench",       "scaleHint": 2.5,  "clearRadius": 5,  "tags": ["craft","wood","furniture"] },
+    "broken_column":   { "displayName": "Broken Column",    "role": "structural", "assetRole": "ruin_column",        "fallback": "broken_column",   "scaleHint": 3.0,  "clearRadius": 6,  "tags": ["ruin","stone","ancient"] },
+    "fence_section":   { "displayName": "Wooden Fence",     "role": "structural", "assetRole": "decoration_fence",   "fallback": "fence_section",   "scaleHint": 2.5,  "clearRadius": 5,  "tags": ["fence","wood","boundary"] },
+    "banner":          { "displayName": "Pirate Banner",    "role": "structural", "assetRole": "decoration_banner",  "fallback": "banner",          "scaleHint": 3.5,  "clearRadius": 5,  "tags": ["flag","cloth","pirate"] },
+    "treasure_chest":  { "displayName": "Treasure Chest",   "role": "structural", "assetRole": "treasure_item",      "fallback": "treasure_chest",  "scaleHint": 2.5,  "clearRadius": 5,  "tags": ["treasure","gold","loot"] },
+    "shipwreck_piece": { "displayName": "Ship Debris",      "role": "structural", "assetRole": "shipwreck_debris",   "fallback": "shipwreck_piece", "scaleHint": 3.0,  "clearRadius": 9,  "tags": ["shipwreck","wood","debris"] },
+
+    "barrel":          { "displayName": "Wooden Barrel",    "role": "filler",     "assetRole": "storage_container",  "fallback": "barrel",          "scaleHint": 2.5,  "clearRadius": 2,  "tags": ["storage","wood","nautical"] },
+    "crate":           { "displayName": "Cargo Crate",      "role": "filler",     "assetRole": "storage_container",  "fallback": "crate",           "scaleHint": 2.5,  "clearRadius": 2,  "tags": ["storage","wood","cargo"] },
+    "rock":            { "displayName": "Rock",             "role": "filler",     "assetRole": "natural_rock",       "fallback": "rock",            "scaleHint": 3.5,  "clearRadius": 4,  "tags": ["nature","stone","terrain"] },
+    "bush":            { "displayName": "Bush",             "role": "filler",     "assetRole": "vegetation_bush",    "fallback": "bush",            "scaleHint": 3.0,  "clearRadius": 3,  "tags": ["vegetation","green","foliage"] },
+    "torch":           { "displayName": "Wall Torch",       "role": "filler",     "assetRole": "decoration_torch",   "fallback": "torch",           "scaleHint": 4.0,  "clearRadius": 2.5,"tags": ["light","fire","decoration"] },
+    "vine":            { "displayName": "Climbing Vine",    "role": "filler",     "assetRole": "vegetation_vine",    "fallback": "vine",            "scaleHint": 3.0,  "clearRadius": 2,  "tags": ["vegetation","green","ancient"] },
+    "palm_tree":       { "displayName": "Palm Tree",        "role": "filler",     "assetRole": "vegetation_tree",    "fallback": "palm_tree",       "scaleHint": 3.0,  "clearRadius": 7.5,"tags": ["tropical","tree","vegetation"] }
+  },
+  "materialPalette": {
+    "wood":    { "roughnessRange": [0.8, 0.95], "metalnessRange": [0.0, 0.05] },
+    "stone":   { "roughnessRange": [0.85, 0.95], "metalnessRange": [0.0, 0.05] },
+    "metal":   { "roughnessRange": [0.3, 0.5],  "metalnessRange": [0.6, 0.8] },
+    "foliage": { "roughnessRange": [0.8, 0.9],  "metalnessRange": [0.0, 0.0] },
+    "cloth":   { "roughnessRange": [0.85, 0.95], "metalnessRange": [0.0, 0.0] },
+    "gold":    { "roughnessRange": [0.2, 0.4],  "metalnessRange": [0.7, 0.9] }
+  }
+}

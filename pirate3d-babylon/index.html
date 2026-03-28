@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skull & Sail — Babylon.js Vertical Slice</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#000; font-family:'Segoe UI',system-ui,sans-serif; }
+  #renderCanvas { width:100%; height:100%; touch-action:none; display:block; }
+
+  /* Interaction prompt */
+  #interact-prompt {
+    position:fixed; bottom:18%; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.75); color:#e8d5a3; padding:10px 28px;
+    border:1px solid rgba(232,213,163,0.4); border-radius:6px;
+    font-size:15px; letter-spacing:1px; text-transform:uppercase;
+    pointer-events:none; opacity:0; transition:opacity 0.2s;
+    text-align:center; white-space:nowrap;
+  }
+  #interact-prompt.visible { opacity:1; }
+  #interact-prompt .key {
+    display:inline-block; background:rgba(232,213,163,0.2);
+    border:1px solid rgba(232,213,163,0.5); border-radius:3px;
+    padding:1px 8px; margin-right:6px; font-weight:bold;
+  }
+
+  /* Crosshair */
+  #crosshair {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:4px; height:4px; border-radius:50%;
+    background:rgba(255,255,255,0.5); pointer-events:none;
+    box-shadow:0 0 6px rgba(255,255,255,0.2);
+  }
+
+  /* HUD */
+  #hud {
+    position:fixed; top:16px; left:16px; color:#e8d5a3;
+    font-size:13px; line-height:1.6; pointer-events:none;
+    text-shadow:0 1px 3px rgba(0,0,0,0.8);
+  }
+
+  /* Debug panel */
+  #debug {
+    position:fixed; top:16px; right:16px; color:#aaa;
+    font-size:11px; font-family:'Courier New',monospace;
+    line-height:1.4; pointer-events:none;
+    text-shadow:0 1px 2px rgba(0,0,0,0.9);
+    max-width:300px;
+  }
+
+  /* Loading */
+  #loading {
+    position:fixed; inset:0; background:#0a0e14;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:#e8d5a3; z-index:100; transition:opacity 0.6s;
+  }
+  #loading h1 { font-size:28px; letter-spacing:4px; margin-bottom:20px; font-weight:300; }
+  #loading .bar { width:300px; height:4px; background:rgba(255,255,255,0.1); border-radius:2px; }
+  #loading .fill { height:100%; width:0; background:#c8a44e; border-radius:2px; transition:width 0.3s; }
+  #loading .status { margin-top:12px; font-size:12px; opacity:0.6; }
+  #loading.done { opacity:0; pointer-events:none; }
+
+  /* Inventory panel */
+  #inventory-panel {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(10,14,20,0.92); border:1px solid rgba(232,213,163,0.4);
+    border-radius:8px; padding:20px 24px; min-width:320px; max-width:420px;
+    color:#e8d5a3; display:none; z-index:50;
+    font-size:14px; pointer-events:auto;
+  }
+  #inventory-panel.visible { display:block; }
+  #inventory-panel h2 {
+    margin:0 0 12px; font-size:18px; letter-spacing:2px;
+    text-transform:uppercase; color:#c8a44e; font-weight:400;
+    border-bottom:1px solid rgba(232,213,163,0.2); padding-bottom:8px;
+  }
+  #inventory-panel .inv-empty {
+    color:rgba(232,213,163,0.4); font-style:italic; font-size:13px;
+  }
+  #inventory-panel .inv-item {
+    display:flex; align-items:center; padding:4px 0;
+    border-bottom:1px solid rgba(255,255,255,0.05);
+  }
+  #inventory-panel .inv-item .inv-icon {
+    width:24px; text-align:center; margin-right:10px; font-size:16px;
+  }
+  #inventory-panel .inv-item .inv-name { flex:1; }
+  #inventory-panel .inv-item .inv-qty {
+    color:#c8a44e; font-weight:bold; min-width:30px; text-align:right;
+  }
+  #inventory-panel .inv-hint {
+    margin-top:10px; font-size:11px; opacity:0.4; text-align:center;
+  }
+
+  /* Loot popup */
+  #loot-popup {
+    position:fixed; bottom:22%; left:50%; transform:translateX(-50%);
+    background:rgba(10,14,20,0.85); border:1px solid rgba(200,164,78,0.6);
+    border-radius:6px; padding:8px 20px; color:#c8a44e;
+    font-size:14px; pointer-events:none; opacity:0; transition:opacity 0.3s;
+    white-space:nowrap; z-index:40;
+  }
+  #loot-popup.visible { opacity:1; }
+</style>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+  <div id="crosshair"></div>
+  <div id="interact-prompt"></div>
+  <div id="hud"></div>
+  <div id="debug"></div>
+  <div id="inventory-panel">
+    <h2>Inventory</h2>
+    <div id="inv-list"></div>
+    <div class="inv-hint">TAB to close</div>
+  </div>
+  <div id="loot-popup"></div>
+  <div id="loading">
+    <h1>SKULL & SAIL</h1>
+    <div class="bar"><div class="fill" id="load-fill"></div></div>
+    <div class="status" id="load-status">Initializing engine...</div>
+  </div>
+
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+  <script src="models.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

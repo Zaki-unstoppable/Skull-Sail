@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Skull & Sail 3D</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none;font-family:'Georgia',serif;}
+canvas{display:block;}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}
+#hud{position:absolute;top:15px;left:15px;color:#e8d5a3;font-size:13px;line-height:2;text-shadow:1px 1px 4px #000;}
+.hlbl{color:#a89060;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;}
+.hval{color:#ffe4a1;font-weight:bold;font-size:15px;}
+#health-bar{position:absolute;top:15px;left:50%;transform:translateX(-50%);width:220px;height:6px;background:rgba(0,0,0,0.6);border-radius:3px;border:1px solid rgba(232,213,163,0.15);}
+#health-fill{height:100%;background:linear-gradient(90deg,#27ae60,#2ecc71);width:100%;transition:width .3s;border-radius:3px;}
+#cannon-bar{position:absolute;top:28px;left:50%;transform:translateX(-50%);width:220px;height:4px;background:rgba(0,0,0,0.4);border-radius:2px;border:1px solid rgba(232,213,163,0.1);display:none;}
+#cannon-fill{height:100%;background:linear-gradient(90deg,#e67e22,#f39c12);width:100%;transition:width .15s;border-radius:2px;}
+#wind-info{position:absolute;top:40px;left:50%;transform:translateX(-50%);color:#a89060;font-size:10px;letter-spacing:1px;text-shadow:1px 1px 3px #000;}
+#log{position:absolute;bottom:20px;left:20px;max-width:400px;color:#c8b888;font-size:12px;font-style:italic;text-shadow:1px 1px 3px #000;line-height:1.7;}
+#controls-info{position:absolute;bottom:15px;right:15px;color:rgba(232,213,163,0.35);font-size:10px;text-align:right;line-height:1.9;text-shadow:1px 1px 2px #000;}
+#minimap{position:absolute;top:15px;right:15px;width:150px;height:150px;border:1px solid rgba(232,213,163,0.2);border-radius:6px;overflow:hidden;}
+#minimap canvas{width:150px;height:150px;}
+#compass{position:absolute;top:172px;right:15px;width:150px;text-align:center;color:#a89060;font-size:10px;letter-spacing:2px;text-shadow:1px 1px 2px #000;}
+#prompt-box{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#e8d5a3;font-size:16px;letter-spacing:2px;text-shadow:0 0 15px rgba(200,160,60,0.4),1px 1px 4px #000;display:none;text-align:center;pointer-events:none;transition:opacity 0.3s;}
+#title-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:radial-gradient(ellipse at 50% 60%,#1a2a3a 0%,#060a14 70%);display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:all;z-index:100;transition:opacity 1.2s;}
+#title-screen h1{font-size:52px;color:#e8d5a3;text-shadow:0 0 60px rgba(200,160,60,0.2),2px 3px 6px rgba(0,0,0,0.9);letter-spacing:8px;margin-bottom:8px;}
+#title-screen .sub{font-size:14px;color:#a89060;letter-spacing:4px;margin-bottom:50px;}
+#start-btn{font-family:'Georgia',serif;font-size:16px;color:#e8d5a3;background:none;border:1px solid rgba(232,213,163,0.25);padding:14px 50px;cursor:pointer;letter-spacing:4px;pointer-events:all;transition:all .3s;}
+#start-btn:hover{background:rgba(232,213,163,0.08);border-color:#e8d5a3;}
+#death-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(8,2,0,0.92);display:none;flex-direction:column;align-items:center;justify-content:center;pointer-events:all;z-index:100;}
+#death-screen h2{font-size:40px;color:#c0392b;letter-spacing:5px;margin-bottom:12px;}
+#death-screen p{color:#a89060;margin-bottom:30px;font-size:13px;}
+#death-screen button{font-family:'Georgia',serif;font-size:15px;color:#e8d5a3;background:none;border:1px solid rgba(232,213,163,0.25);padding:12px 35px;cursor:pointer;pointer-events:all;letter-spacing:3px;}
+#loot-popup{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);background:rgba(15,10,5,0.92);border:1px solid rgba(232,213,163,0.3);border-radius:8px;padding:20px 30px;color:#e8d5a3;text-align:center;display:none;pointer-events:all;z-index:50;min-width:200px;}
+#loot-popup h3{font-size:16px;margin-bottom:12px;letter-spacing:2px;color:#ffd700;}
+#loot-items{font-size:13px;line-height:2;color:#c8b888;margin-bottom:15px;}
+#loot-popup button{font-family:Georgia,serif;font-size:13px;color:#e8d5a3;background:none;border:1px solid rgba(232,213,163,0.25);padding:8px 24px;cursor:pointer;letter-spacing:2px;}
+#sail-indicator{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);color:#a89060;font-size:11px;letter-spacing:1.5px;text-shadow:1px 1px 3px #000;display:none;text-align:center;}
+#enemy-hud{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;}
+.enemy-hp{position:absolute;width:50px;height:4px;background:rgba(0,0,0,0.6);border-radius:2px;pointer-events:none;}
+.enemy-hp-fill{height:100%;background:#c0392b;border-radius:2px;}
+.enemy-name{position:absolute;color:#cc8888;font-size:9px;letter-spacing:1px;text-shadow:1px 1px 2px #000;white-space:nowrap;pointer-events:none;}
+#mobile-controls{display:none;position:absolute;bottom:0;left:0;width:100%;height:200px;pointer-events:none;}
+#joystick-zone{position:absolute;bottom:30px;left:30px;width:120px;height:120px;pointer-events:all;}
+#joystick-base{width:120px;height:120px;border-radius:50%;background:rgba(232,213,163,0.06);border:2px solid rgba(232,213,163,0.12);position:relative;}
+#joystick-stick{width:46px;height:46px;border-radius:50%;background:rgba(232,213,163,0.15);border:2px solid rgba(232,213,163,0.3);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);}
+.mob-btn{position:absolute;border-radius:50%;color:#e8d5a3;font-family:Georgia,serif;pointer-events:all;text-align:center;display:flex;align-items:center;justify-content:center;font-size:10px;letter-spacing:1px;}
+#fire-btn{bottom:45px;right:35px;width:70px;height:70px;background:rgba(200,50,30,0.15);border:2px solid rgba(200,50,30,0.35);}
+#interact-btn{bottom:130px;right:40px;width:56px;height:56px;background:rgba(232,213,163,0.08);border:2px solid rgba(232,213,163,0.2);font-size:9px;}
+#sail-btn{bottom:90px;right:120px;width:50px;height:50px;background:rgba(100,180,232,0.08);border:2px solid rgba(100,180,232,0.2);font-size:9px;}
+#settings-btn{position:absolute;top:15px;left:50%;transform:translateX(140px);width:30px;height:30px;cursor:pointer;pointer-events:all;color:#a89060;font-size:22px;text-align:center;line-height:30px;border:1px solid rgba(232,213,163,0.2);border-radius:4px;background:rgba(0,0,0,0.3);z-index:10;transition:all .2s;}
+#settings-btn:hover{background:rgba(232,213,163,0.1);color:#e8d5a3;}
+#settings-panel{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(10,8,5,0.95);border:1px solid rgba(232,213,163,0.3);border-radius:10px;padding:25px 35px;color:#e8d5a3;pointer-events:all;z-index:200;min-width:320px;max-width:400px;font-size:13px;}
+#settings-panel h2{font-size:18px;letter-spacing:3px;margin-bottom:18px;color:#ffe4a1;text-align:center;}
+.settings-row{display:flex;justify-content:space-between;align-items:center;margin:10px 0;padding:6px 0;border-bottom:1px solid rgba(232,213,163,0.08);}
+.settings-row label{color:#a89060;font-size:11px;letter-spacing:1px;text-transform:uppercase;}
+.settings-row input[type=range]{width:120px;accent-color:#a89060;}
+.settings-row select,.settings-row button{font-family:Georgia,serif;background:rgba(232,213,163,0.08);color:#e8d5a3;border:1px solid rgba(232,213,163,0.2);padding:4px 10px;font-size:11px;cursor:pointer;border-radius:3px;}
+.key-bind{min-width:60px;text-align:center;letter-spacing:1px;text-transform:uppercase;}
+.key-bind.listening{border-color:#e8d5a3;background:rgba(232,213,163,0.15);animation:pulse 0.6s infinite alternate;}
+@keyframes pulse{from{opacity:0.7}to{opacity:1}}
+#settings-close{display:block;margin:18px auto 0;font-family:Georgia,serif;font-size:13px;color:#e8d5a3;background:none;border:1px solid rgba(232,213,163,0.25);padding:8px 28px;cursor:pointer;letter-spacing:2px;}
+#settings-close:hover{background:rgba(232,213,163,0.08);}
+#asset-debug{display:none;position:absolute;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#6f6;font-family:monospace;font-size:10px;padding:8px 12px;border-radius:4px;max-width:500px;max-height:200px;overflow:auto;z-index:300;pointer-events:none;}
+#loading-overlay{display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(6,10,20,0.9);z-index:150;flex-direction:column;align-items:center;justify-content:center;pointer-events:all;}
+#loading-overlay .bar{width:300px;height:4px;background:rgba(232,213,163,0.15);border-radius:2px;margin-top:15px;}
+#loading-overlay .fill{height:100%;background:#a89060;border-radius:2px;width:0;transition:width .3s;}
+#loading-overlay .text{color:#a89060;font-size:11px;letter-spacing:2px;margin-top:10px;}
+</style>
+</head>
+<body>
+<div id="ui">
+  <div id="title-screen">
+    <h1>SKULL & SAIL</h1>
+    <div class="sub">3D OPEN WORLD PIRATE ADVENTURE</div>
+    <button id="start-btn">SET SAIL</button>
+  </div>
+  <div id="death-screen">
+    <h2>YE BE SUNK</h2>
+    <p id="death-stats"></p>
+    <button id="restart-btn">SAIL AGAIN</button>
+  </div>
+  <div id="prompt-box"></div>
+  <div id="loot-popup"><h3 id="loot-title">PLUNDER</h3><div id="loot-items"></div><button id="loot-close">COLLECT</button></div>
+  <div id="health-bar"><div id="health-fill"></div></div>
+  <div id="cannon-bar"><div id="cannon-fill"></div></div>
+  <div id="wind-info"></div>
+  <div id="hud"></div>
+  <div id="minimap"><canvas id="mm" width="150" height="150"></canvas></div>
+  <div id="compass"></div>
+  <div id="sail-indicator"></div>
+  <div id="enemy-hud"></div>
+  <div id="log"></div>
+  <div id="controls-info">
+    WASD — Move / Steer<br>
+    MOUSE — Orbit Camera<br>
+    SCROLL — Zoom<br>
+    R — Raise / Lower Sails<br>
+    F — Board Ship / Disembark<br>
+    SPACE — Fire / Jump<br>
+    E — Loot / Interact
+  </div>
+  <div id="settings-btn" title="Settings">&#9881;</div>
+  <div id="settings-panel">
+    <h2>SETTINGS</h2>
+    <div class="settings-row"><label>Mouse Sensitivity</label><input type="range" id="sens-slider" min="1" max="20" value="5"></div>
+    <div class="settings-row"><label>Zoom Sensitivity</label><input type="range" id="zoom-slider" min="1" max="10" value="3"></div>
+    <div class="settings-row"><label>Controls</label><select id="ctrl-mode"><option value="pc">Keyboard + Mouse</option><option value="mobile">Touch / Mobile</option></select></div>
+    <hr style="border-color:rgba(232,213,163,0.1);margin:12px 0;">
+    <div style="color:#a89060;font-size:10px;letter-spacing:1.5px;margin-bottom:8px;text-transform:uppercase;">Key Bindings (click to rebind)</div>
+    <div class="settings-row"><label>Forward</label><button class="key-bind" data-action="forward">W</button></div>
+    <div class="settings-row"><label>Back</label><button class="key-bind" data-action="back">S</button></div>
+    <div class="settings-row"><label>Left</label><button class="key-bind" data-action="left">A</button></div>
+    <div class="settings-row"><label>Right</label><button class="key-bind" data-action="right">D</button></div>
+    <div class="settings-row"><label>Fire / Jump</label><button class="key-bind" data-action="fire"> </button></div>
+    <div class="settings-row"><label>Interact</label><button class="key-bind" data-action="interact">E</button></div>
+    <div class="settings-row"><label>Board Ship</label><button class="key-bind" data-action="board">F</button></div>
+    <div class="settings-row"><label>Sails</label><button class="key-bind" data-action="sails">R</button></div>
+    <button id="settings-close">DONE</button>
+  </div>
+  <div id="mobile-controls">
+    <div id="joystick-zone"><div id="joystick-base"><div id="joystick-stick"></div></div></div>
+    <div id="fire-btn" class="mob-btn">FIRE</div>
+    <div id="interact-btn" class="mob-btn">E</div>
+    <div id="sail-btn" class="mob-btn">SAIL</div>
+  </div>
+  <div id="asset-debug"></div>
+  <div id="loading-overlay">
+    <div style="color:#e8d5a3;font-size:14px;letter-spacing:3px;">LOADING ASSETS</div>
+    <div class="bar"><div class="fill" id="loading-fill"></div></div>
+    <div class="text" id="loading-text">Preparing world...</div>
+  </div>
+</div>
+
+<!-- Three.js r128 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- GLTFLoader for model imports -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+<!-- Asset Pipeline Modules -->
+<script src="config.js"></script>
+<script src="assets.js"></script>
+<script src="placement.js"></script>
+
+<!-- Core Game -->
+<script src="game.js"></script>
+</body>
+</html>
