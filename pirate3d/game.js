@@ -1546,7 +1546,7 @@ function startIslandTransition(island){
             try {
               saveGameState();
               const params = '?type=' + encodeURIComponent(island.type) + '&name=' + encodeURIComponent(island.name);
-              const target = new URL('../pirate3d-babylon/index.html' + params, window.location.href).href;
+              const target = new URL('pirate3d-babylon/index.html' + params, window.location.href).href;
               console.log('[Dock] Redirecting to:', target);
               window.location.replace(target);
             } catch(e) {

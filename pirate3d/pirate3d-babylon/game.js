@@ -2744,7 +2744,7 @@ function startWorldTransition(){
             clearInterval(interval);
             bar.style.width = '100%';
             setTimeout(() => {
-              const target = new URL('../pirate3d/index.html', window.location.href).href;
+              const target = new URL('../index.html', window.location.href).href;
               window.location.replace(target);
             }, 500);
           } else {
