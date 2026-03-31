@@ -1546,16 +1546,7 @@ function startIslandTransition(island){
             try {
               saveGameState();
               const params = '?type=' + encodeURIComponent(island.type) + '&name=' + encodeURIComponent(island.name);
-              let target;
-              if(window.location.protocol === 'file:'){
-                // Opened directly from filesystem — resolve sibling directory
-                const here = window.location.pathname;
-                const dir = here.substring(0, here.lastIndexOf('/'));
-                const parent = dir.substring(0, dir.lastIndexOf('/'));
-                target = 'file://' + parent + '/pirate3d-babylon/index.html' + params;
-              } else {
-                target = window.location.protocol + '//' + window.location.hostname + ':8001/' + params;
-              }
+              const target = new URL('../pirate3d-babylon/index.html' + params, window.location.href).href;
               console.log('[Dock] Redirecting to:', target);
               window.location.replace(target);
             } catch(e) {

@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/pirate3d/index.html",
+      "permanent": false
+    }
+  ]
+}

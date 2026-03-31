@@ -2744,15 +2744,7 @@ function startWorldTransition(){
             clearInterval(interval);
             bar.style.width = '100%';
             setTimeout(() => {
-              let target;
-              if(window.location.protocol === 'file:'){
-                const here = window.location.pathname;
-                const dir = here.substring(0, here.lastIndexOf('/'));
-                const parent = dir.substring(0, dir.lastIndexOf('/'));
-                target = 'file://' + parent + '/pirate3d/index.html';
-              } else {
-                target = window.location.protocol + '//' + window.location.hostname + ':8000';
-              }
+              const target = new URL('../pirate3d/index.html', window.location.href).href;
               window.location.replace(target);
             }, 500);
           } else {
