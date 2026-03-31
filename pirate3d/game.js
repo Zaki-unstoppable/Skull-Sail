@@ -2865,17 +2865,33 @@ function loop(now){
 }
 
 function startGameFresh(){
-  document.getElementById('title-screen').style.opacity='0';
-  setTimeout(()=>document.getElementById('title-screen').style.display='none',1200);
+  console.info('[Init] Starting game via Play button...');
+  const ts = document.getElementById('title-screen');
+  if(ts) ts.style.opacity='0';
+  if(ts) setTimeout(()=>ts.style.display='none',1200);
+  
+  // Hide the loading screen canvas
+  if(window.LoadingScreen) window.LoadingScreen.hide();
+  // Hide the play button
+  const pb = document.getElementById('play-btn');
+  if(pb) pb.style.display = 'none';
+
   gameStarted=true;initGame();
   if(window.AssetPipeline) initAssetPipeline();
 }
+window.startGameFresh = startGameFresh;
 
-document.getElementById('start-btn').addEventListener('click',()=>{
-  clearSavedState(); // fresh game clears any leftover save
-  startGameFresh();
-});
-document.getElementById('restart-btn').addEventListener('click',()=>{
+const pb = document.getElementById('play-btn');
+if (pb) {
+  pb.addEventListener('click',()=>{
+    console.log('[Play] Ready to Set Sail...');
+    startGameFresh();
+  });
+} else {
+  console.warn('[Warning] #play-btn not found at initialization.');
+}
+const restartBtn = document.getElementById('restart-btn');
+if(restartBtn) restartBtn.addEventListener('click',()=>{
   clearSavedState();
   initGame();
 });
@@ -2888,7 +2904,9 @@ document.getElementById('restart-btn').addEventListener('click',()=>{
   // Apply seed + stats BEFORE initGame so islands match
   applyGameState(saved);
   // Skip title screen immediately
-  document.getElementById('title-screen').style.display='none';
+  const ts = document.getElementById('title-screen');
+  if(ts) ts.style.display='none';
+  if(window.LoadingScreen) window.LoadingScreen.hide();
   gameStarted = true;
   initGame();
   // Re-apply player state AFTER initGame (which calls resetPlayer)

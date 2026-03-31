@@ -787,51 +787,177 @@ if(ISLAND_TYPE === 'village'){
 }
 
 // ============================================================
-// 5. DOOR SYSTEM
+// 5. DOOR SYSTEM — Authored-asset workflow (Pack 1 MP2)
 // ============================================================
-function createDoor(building){
+// Proper separation: FRAME (static, always blocks) vs LEAF (animated, hinged).
+// Frame stays in place and always blocks the player. The leaf swings on a
+// hinge pivot placed at the frame edge. Collision on the leaf updates with
+// the swing so the player can walk through when open and is blocked when closed.
+// ============================================================
+
+function createDoorFrame(building){
+  // Frame is purely structural — always blocks, never animates
   const meta = building.metadata;
   const DW = meta.doorWidth;
   const DH = meta.doorHeight;
+  const WT = meta.wallThick || 0.3;
+  const bx = building.position.x;
+  const by = building.position.y;
+  const bz = building.position.z;
+  const cx = meta.doorCenterX;
+  const cz = meta.doorCenterZ;
 
-  const door = BABYLON.MeshBuilder.CreateBox('door', {
-    width: DW, height: DH, depth: 0.06
+  const frame = new BABYLON.TransformNode('doorFrame', scene);
+  frame.position.set(bx, by, bz);
+
+  const frameMat = MAT.woodDark;
+  const frameDepth = WT + 0.04;  // slightly deeper than wall
+  const frameW = 0.09;           // frame member width
+
+  // Left jamb
+  const jamb_L = BABYLON.MeshBuilder.CreateBox('frame_jamb_L', {
+    width: frameW, height: DH + 0.04, depth: frameDepth
   }, scene);
-  door.material = MAT.wood;
-  shadowGen.addShadowCaster(door);
-  door.receiveShadows = true;
+  jamb_L.material = frameMat;
+  jamb_L.position.set(cx - DW/2 - frameW/2, DH/2 + 0.15, cz);
+  jamb_L.checkCollisions = true;
+  jamb_L.receiveShadows = true;
+  shadowGen.addShadowCaster(jamb_L);
+  jamb_L.parent = frame;
 
-  door.setPivotPoint(new BABYLON.Vector3(-DW/2, 0, 0));
-
-  door.position.set(
-    meta.doorCenterX - DW/2 + building.position.x,
-    DH/2 + building.position.y + 0.15,
-    meta.doorCenterZ + building.position.z
-  );
-
-  // Door handle
-  const handle = BABYLON.MeshBuilder.CreateCylinder('handle', {
-    height: 0.12, diameter: 0.04, tessellation: 8
+  // Right jamb
+  const jamb_R = BABYLON.MeshBuilder.CreateBox('frame_jamb_R', {
+    width: frameW, height: DH + 0.04, depth: frameDepth
   }, scene);
-  handle.material = MAT.metal;
-  handle.rotation.x = Math.PI/2;
-  handle.position.set(DW/2 - 0.15, 0, 0.05);
-  handle.parent = door;
+  jamb_R.material = frameMat;
+  jamb_R.position.set(cx + DW/2 + frameW/2, DH/2 + 0.15, cz);
+  jamb_R.checkCollisions = true;
+  jamb_R.receiveShadows = true;
+  shadowGen.addShadowCaster(jamb_R);
+  jamb_R.parent = frame;
 
-  // Door planks visual detail
-  const plankMat = MAT.woodDark;
-  for(let i = 0; i < 3; i++){
-    const plank = BABYLON.MeshBuilder.CreateBox('plank'+i, {
-      width: DW - 0.04, height: 0.03, depth: 0.065
+  // Head (lintel trim)
+  const head = BABYLON.MeshBuilder.CreateBox('frame_head', {
+    width: DW + frameW * 2 + 0.04, height: frameW, depth: frameDepth
+  }, scene);
+  head.material = frameMat;
+  head.position.set(cx, DH + frameW/2 + 0.15, cz);
+  head.checkCollisions = true;
+  head.receiveShadows = true;
+  shadowGen.addShadowCaster(head);
+  head.parent = frame;
+
+  // Threshold (bottom trim)
+  const threshold = BABYLON.MeshBuilder.CreateBox('frame_threshold', {
+    width: DW + frameW * 2 + 0.04, height: 0.03, depth: frameDepth
+  }, scene);
+  threshold.material = frameMat;
+  threshold.position.set(cx, 0.165, cz);
+  threshold.receiveShadows = true;
+  threshold.parent = frame;
+
+  // Decorative chamfer strips on inner edges of jambs
+  for(const side of [-1, 1]){
+    const chamfer = BABYLON.MeshBuilder.CreateBox('frame_chamfer', {
+      width: 0.02, height: DH, depth: 0.02
     }, scene);
-    plank.material = plankMat;
-    plank.position.set(0, -DH/2 + 0.3 + i * (DH/3), 0.001);
-    plank.parent = door;
+    chamfer.material = MAT.wood;
+    chamfer.position.set(cx + side * (DW/2 + 0.005), DH/2 + 0.15, cz + frameDepth/2 - 0.01);
+    chamfer.parent = frame;
   }
 
-  door.checkCollisions = true;
+  return frame;
+}
 
-  door.metadata = {
+function createDoorLeaf(building){
+  // Leaf is the swinging part — hinged at left jamb edge
+  const meta = building.metadata;
+  const DW = meta.doorWidth;
+  const DH = meta.doorHeight;
+  const bx = building.position.x;
+  const by = building.position.y;
+  const bz = building.position.z;
+  const cx = meta.doorCenterX;
+  const cz = meta.doorCenterZ;
+
+  // The leaf is a TransformNode so the pivot is at the hinge edge
+  const leafRoot = new BABYLON.TransformNode('doorLeaf', scene);
+  // Position at hinge point: left jamb inner edge, base of door
+  leafRoot.position.set(bx + cx - DW/2, by + 0.15, bz + cz);
+
+  // Door panel — offset so the hinge edge is at local X=0
+  const panel = BABYLON.MeshBuilder.CreateBox('door_panel_COL', {
+    width: DW, height: DH, depth: 0.06
+  }, scene);
+  panel.material = MAT.wood;
+  panel.position.set(DW/2, DH/2, 0);  // centered on leaf, hinge at left edge
+  panel.checkCollisions = true;
+  panel.receiveShadows = true;
+  shadowGen.addShadowCaster(panel);
+  panel.parent = leafRoot;
+
+  // Plank detail — 5 vertical stiles for a proper paneled door look
+  const plankMat = MAT.woodDark;
+  const stileW = 0.04;
+  for(let i = 0; i < 5; i++){
+    const x = 0.06 + i * (DW - 0.12) / 4;
+    const stile = BABYLON.MeshBuilder.CreateBox('door_stile_VIS', {
+      width: stileW, height: DH - 0.08, depth: 0.065
+    }, scene);
+    stile.material = plankMat;
+    stile.position.set(x, DH/2, 0.001);
+    stile.parent = leafRoot;
+  }
+  // 3 horizontal rails
+  for(const yFrac of [0.15, 0.5, 0.85]){
+    const rail = BABYLON.MeshBuilder.CreateBox('door_rail_VIS', {
+      width: DW - 0.06, height: 0.05, depth: 0.065
+    }, scene);
+    rail.material = plankMat;
+    rail.position.set(DW/2, DH * yFrac, 0.001);
+    rail.parent = leafRoot;
+  }
+
+  // Handle (exterior side)
+  const handlePlate = BABYLON.MeshBuilder.CreateBox('door_handlePlate_VIS', {
+    width: 0.04, height: 0.14, depth: 0.01
+  }, scene);
+  handlePlate.material = MAT.metal;
+  handlePlate.position.set(DW - 0.15, DH * 0.48, 0.035);
+  handlePlate.parent = leafRoot;
+
+  const handleGrip = BABYLON.MeshBuilder.CreateCylinder('door_handle_VIS', {
+    height: 0.12, diameter: 0.025, tessellation: 8
+  }, scene);
+  handleGrip.material = MAT.metal;
+  handleGrip.rotation.x = Math.PI/2;
+  handleGrip.position.set(DW - 0.15, DH * 0.48, 0.055);
+  handleGrip.parent = leafRoot;
+
+  // Handle (interior side)
+  const handleGripInt = handleGrip.clone('door_handleInt_VIS');
+  handleGripInt.position.z = -0.055;
+  handleGripInt.parent = leafRoot;
+
+  // Hinge plates (2 visible hinges on hinge side)
+  for(const yFrac of [0.2, 0.8]){
+    const hinge = BABYLON.MeshBuilder.CreateBox('door_hinge_VIS', {
+      width: 0.06, height: 0.08, depth: 0.015
+    }, scene);
+    hinge.material = MAT.metal;
+    hinge.position.set(0.03, DH * yFrac, 0.035);
+    hinge.parent = leafRoot;
+
+    // Hinge pin (cylinder on the edge)
+    const pin = BABYLON.MeshBuilder.CreateCylinder('door_pin_VIS', {
+      height: 0.1, diameter: 0.015, tessellation: 6
+    }, scene);
+    pin.material = MAT.metal;
+    pin.position.set(0.0, DH * yFrac, 0.0);
+    pin.parent = leafRoot;
+  }
+
+  leafRoot.metadata = {
     interactType: 'door',
     isOpen: false,
     animating: false,
@@ -841,33 +967,39 @@ function createDoor(building){
     promptClose: 'Close Door'
   };
 
-  return door;
+  return leafRoot;
 }
 
 setLoad(35, 'Adding door...');
-const door = tavern ? createDoor(tavern) : null;
+let doorFrame = null;
+let door = null;
+if(tavern){
+  doorFrame = createDoorFrame(tavern);
+  door = createDoorLeaf(tavern);
+}
 
-// Door animation
-function toggleDoor(doorMesh){
-  const meta = doorMesh.metadata;
+// Door animation — animates the leaf TransformNode, collision follows
+function toggleDoor(doorNode){
+  const meta = doorNode.metadata;
   if(meta.animating) return;
   meta.animating = true;
 
   const targetAngle = meta.isOpen ? meta.closedAngle : meta.openAngle;
-  const startAngle = doorMesh.rotation.y;
+  const startAngle = doorNode.rotation.y;
   const duration = 500;
   const startTime = performance.now();
 
   function animStep(){
     const elapsed = performance.now() - startTime;
     const t = Math.min(1, elapsed / duration);
+    // Smooth ease-out-cubic
     const eased = 1 - Math.pow(1 - t, 3);
-    doorMesh.rotation.y = startAngle + (targetAngle - startAngle) * eased;
+    doorNode.rotation.y = startAngle + (targetAngle - startAngle) * eased;
 
     if(t < 1){
       requestAnimationFrame(animStep);
     } else {
-      doorMesh.rotation.y = targetAngle;
+      doorNode.rotation.y = targetAngle;
       meta.isOpen = !meta.isOpen;
       meta.animating = false;
     }
@@ -876,61 +1008,161 @@ function toggleDoor(doorMesh){
 }
 
 // ============================================================
-// 6. CHEST SYSTEM
+// 6. CHEST SYSTEM — Authored-asset workflow (Pack 1 MP2)
 // ============================================================
+// Proper separation: BASE (static, always blocks) vs LID (animated, hinged at back).
+// Interaction targeting uses a dedicated invisible trigger volume (_INT convention)
+// so the player doesn't have to aim at a tiny mesh. Gold glow ramps on open.
+// ============================================================
+
 function createChest(pos, name){
   const chest = new BABYLON.TransformNode(name || 'chest', scene);
   chest.position = pos.clone();
 
-  // Base box
-  const base = BABYLON.MeshBuilder.CreateBox('chestBase', {
-    width: 0.7, height: 0.4, depth: 0.45
+  const CW = 0.7, CH = 0.4, CD = 0.45;
+
+  // ── BASE (static, collision) ──
+  const base = BABYLON.MeshBuilder.CreateBox('chest_base_COL', {
+    width: CW, height: CH, depth: CD
   }, scene);
   base.material = MAT.woodDark;
-  base.position.y = 0.2;
+  base.position.y = CH/2;
   base.checkCollisions = true;
   base.receiveShadows = true;
   shadowGen.addShadowCaster(base);
   base.parent = chest;
 
-  // Metal bands
+  // Plank detail on front face
+  const plankMat = makeMat('chest_plank', '#4a2a10', 0.92, 0);
+  for(let i = 0; i < 3; i++){
+    const plank = BABYLON.MeshBuilder.CreateBox('chest_plank_VIS', {
+      width: CW - 0.04, height: 0.015, depth: 0.005
+    }, scene);
+    plank.material = plankMat;
+    plank.position.set(0, 0.1 + i * 0.12, CD/2 + 0.003);
+    plank.parent = chest;
+  }
+
+  // Side plank detail
+  for(const side of [-1, 1]){
+    for(let i = 0; i < 2; i++){
+      const sp = BABYLON.MeshBuilder.CreateBox('chest_sideplank_VIS', {
+        width: 0.005, height: CH - 0.06, depth: CD - 0.04
+      }, scene);
+      sp.material = plankMat;
+      sp.position.set(side * (CW/2 + 0.003), CH/2, 0);
+      sp.parent = chest;
+    }
+  }
+
+  // Metal bands (3 bands)
   const bandMat = MAT.metal;
-  for(const yo of [0.08, 0.32]){
-    const band = BABYLON.MeshBuilder.CreateBox('band', { width: 0.72, height: 0.03, depth: 0.47 }, scene);
+  for(const yo of [0.06, CH/2, CH - 0.04]){
+    const band = BABYLON.MeshBuilder.CreateBox('chest_band_VIS', {
+      width: CW + 0.02, height: 0.025, depth: CD + 0.02
+    }, scene);
     band.material = bandMat;
     band.position.y = yo;
     band.parent = chest;
   }
 
-  // Lid (hinged at back)
-  const lid = BABYLON.MeshBuilder.CreateBox('chestLid', {
-    width: 0.7, height: 0.08, depth: 0.45
+  // Corner brackets (8 corners)
+  for(const x of [-1, 1]){
+    for(const z of [-1, 1]){
+      const bracket = BABYLON.MeshBuilder.CreateBox('chest_bracket_VIS', {
+        width: 0.04, height: CH + 0.01, depth: 0.04
+      }, scene);
+      bracket.material = bandMat;
+      bracket.position.set(x * CW/2, CH/2, z * CD/2);
+      bracket.parent = chest;
+    }
+  }
+
+  // ── LID (animated, hinged at back edge) ──
+  const lidRoot = new BABYLON.TransformNode('chest_lidRoot', scene);
+  // Pivot at the back-top edge of the base
+  lidRoot.position.set(0, CH, -CD/2);
+  lidRoot.parent = chest;
+
+  const lid = BABYLON.MeshBuilder.CreateBox('chest_lid_VIS', {
+    width: CW + 0.01, height: 0.08, depth: CD
   }, scene);
   lid.material = MAT.wood;
-  lid.setPivotPoint(new BABYLON.Vector3(0, 0, -0.225));
-  lid.position.set(0, 0.44, -0.225);
+  // Offset so the hinge edge is at local Z=0 (back edge)
+  lid.position.set(0, 0.04, CD/2);
+  lid.receiveShadows = true;
   shadowGen.addShadowCaster(lid);
-  lid.parent = chest;
+  lid.parent = lidRoot;
 
-  // Latch
-  const latch = BABYLON.MeshBuilder.CreateBox('latch', { width: 0.08, height: 0.06, depth: 0.02 }, scene);
-  latch.material = MAT.metalGold;
-  latch.position.set(0, 0.38, 0.24);
-  latch.parent = chest;
+  // Lid metal band
+  const lidBand = BABYLON.MeshBuilder.CreateBox('chest_lidband_VIS', {
+    width: CW + 0.03, height: 0.02, depth: CD + 0.02
+  }, scene);
+  lidBand.material = bandMat;
+  lidBand.position.set(0, 0.06, CD/2);
+  lidBand.parent = lidRoot;
+
+  // Lid arch (slight rounded top — a flattened cylinder slice)
+  const lidArch = BABYLON.MeshBuilder.CreateCylinder('chest_arch_VIS', {
+    height: CW + 0.01, diameter: CD * 0.6, tessellation: 8,
+    arc: 0.5  // half-cylinder
+  }, scene);
+  lidArch.material = MAT.wood;
+  lidArch.rotation.z = Math.PI/2;
+  lidArch.rotation.y = Math.PI;
+  lidArch.position.set(0, 0.08, CD/2);
+  lidArch.scaling.y = 0.3;
+  lidArch.parent = lidRoot;
+
+  // Latch (front face)
+  const latchPlate = BABYLON.MeshBuilder.CreateBox('chest_latchPlate_VIS', {
+    width: 0.06, height: 0.04, depth: 0.01
+  }, scene);
+  latchPlate.material = MAT.metalGold;
+  latchPlate.position.set(0, 0.0, CD + 0.005);
+  latchPlate.parent = lidRoot;
+
+  const latchHasp = BABYLON.MeshBuilder.CreateBox('chest_latchHasp_VIS', {
+    width: 0.04, height: 0.06, depth: 0.008
+  }, scene);
+  latchHasp.material = MAT.metalGold;
+  latchHasp.position.set(0, -0.04, CD + 0.005);
+  latchHasp.parent = lidRoot;
+
+  // ── INTERACTION TRIGGER (invisible, generous volume) ──
+  const trigger = BABYLON.MeshBuilder.CreateBox('chest_trigger_INT', {
+    width: CW + 0.6, height: CH + 0.5, depth: CD + 0.6
+  }, scene);
+  trigger.isVisible = false;
+  trigger.isPickable = true;
+  trigger.checkCollisions = false;
+  trigger.position.y = CH/2;
+  trigger.parent = chest;
 
   // Gold interior glow (visible when open)
-  const goldGlow = new BABYLON.PointLight('chestGlow_' + (name||''), new BABYLON.Vector3(0, 0.3, 0), scene);
+  const goldGlow = new BABYLON.PointLight('chestGlow_' + (name||''),
+    new BABYLON.Vector3(0, CH * 0.6, 0), scene);
   goldGlow.diffuse = new BABYLON.Color3(1, 0.85, 0.4);
   goldGlow.intensity = 0;
   goldGlow.range = 3;
   goldGlow.parent = chest;
 
+  // Gold coins visible inside (when open)
+  const goldPile = BABYLON.MeshBuilder.CreateCylinder('chest_gold_VIS', {
+    height: 0.08, diameter: 0.35, tessellation: 8
+  }, scene);
+  goldPile.material = MAT.metalGold;
+  goldPile.position.set(0, 0.06, 0);
+  goldPile.isVisible = false;  // shown on open
+  goldPile.parent = chest;
+
   chest.metadata = {
     interactType: 'chest',
     isOpen: false,
     animating: false,
-    lid: lid,
+    lidRoot: lidRoot,
     goldGlow: goldGlow,
+    goldPile: goldPile,
     promptOpen: 'Open Chest',
     promptInspect: 'Inspect Chest',
     lootCollected: false
@@ -945,23 +1177,34 @@ function toggleChest(chestNode){
   if(meta.isOpen) return;
   meta.animating = true;
 
-  const lid = meta.lid;
+  const lidRoot = meta.lidRoot;
   const startAngle = 0;
   const targetAngle = -Math.PI * 0.55;
-  const duration = 600;
+  const duration = 700;
   const startTime = performance.now();
+
+  // Show gold pile when lid starts opening
+  if(meta.goldPile) meta.goldPile.isVisible = true;
 
   function animStep(){
     const elapsed = performance.now() - startTime;
     const t = Math.min(1, elapsed / duration);
-    const eased = 1 - Math.pow(1 - t, 3);
-    lid.rotation.x = startAngle + (targetAngle - startAngle) * eased;
-    meta.goldGlow.intensity = eased * 1.5;
+    // Smooth ease-out with slight bounce at the end
+    let eased;
+    if(t < 0.85){
+      eased = 1 - Math.pow(1 - (t / 0.85), 3);
+    } else {
+      // Tiny settle bounce
+      const bt = (t - 0.85) / 0.15;
+      eased = 1.0 + Math.sin(bt * Math.PI) * 0.03;
+    }
+    lidRoot.rotation.x = startAngle + (targetAngle - startAngle) * Math.min(eased, 1.02);
+    meta.goldGlow.intensity = Math.min(eased, 1.0) * 1.8;
 
     if(t < 1){
       requestAnimationFrame(animStep);
     } else {
-      lid.rotation.x = targetAngle;
+      lidRoot.rotation.x = targetAngle;
       meta.isOpen = true;
       meta.animating = false;
     }
@@ -2380,7 +2623,7 @@ function updateDebug(){
   txt += `meshes: ${scene.meshes.length}\n`;
   txt += `fps: ${engine.getFps().toFixed(0)}\n`;
 
-  // Asset source stats
+  // Asset source stats + convention compliance
   if(window.AssetLibrary && window.AssetLibrary.getSources){
     const src = window.AssetLibrary.getSources();
     const keys = Object.keys(src);
@@ -2388,9 +2631,38 @@ function updateDebug(){
     const fb = keys.filter(k => src[k] === 'FALLBACK').length;
     txt += `\n--- ASSETS ---\n`;
     txt += `library: ${glb} GLB / ${fb} fallback / ${keys.length} total\n`;
-    if(glb === 0) txt += `⚠ NO GLBs found — assets/ dir empty, all procedural\n`;
-    txt += `inline: front/back walls, roof, door, chest, fort, warehouse, temple\n`;
-    txt += `modular: L/R walls, 2F walls, stairs (wall_module + stair_step)\n`;
+    if(glb === 0) txt += `⚠ NO GLBs — assets/ dir empty, all procedural\n`;
+    txt += `inline: walls, roof, door, chest, fort, warehouse, temple\n`;
+    txt += `modular: L/R walls, 2F walls, stairs\n`;
+
+    // Convention audit
+    if(window.AssetLibrary.auditConventions){
+      const audit = window.AssetLibrary.auditConventions();
+      txt += `\n--- CONVENTIONS ---\n`;
+      txt += `convention-tagged GLBs: ${audit.conventionTagged}/${audit.glb}\n`;
+      txt += `suffixes: _COL _VIS _INT _PIV _NAV\n`;
+    }
+
+    // Role breakdown
+    if(window.AssetLibrary.getCatalogByRole){
+      const roles = window.AssetLibrary.getCatalogByRole();
+      txt += `roles: `;
+      for(const [role, items] of Object.entries(roles)){
+        txt += `${role}(${items.length}) `;
+      }
+      txt += `\n`;
+    }
+
+    // Current interact target convention info
+    if(currentInteractable && window.AssetLibrary.getConvention){
+      const conv = window.AssetLibrary.getConvention(currentInteractable);
+      if(conv){
+        txt += `\n--- TARGET CONVENTION ---\n`;
+        const r = conv.report;
+        txt += `COL:${r.col} VIS:${r.vis} INT:${r.int} PIV:${r.piv} default:${r.default}\n`;
+        if(conv.pivotPoint) txt += `pivot: ${conv.pivotPoint.x.toFixed(2)},${conv.pivotPoint.y.toFixed(2)},${conv.pivotPoint.z.toFixed(2)}\n`;
+      }
+    }
   }
 
   txt += `\n--- LOG ---\n`;

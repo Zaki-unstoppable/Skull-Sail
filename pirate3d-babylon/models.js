@@ -13,6 +13,56 @@
  *   1. Export the model as GLB with correct scale (1 unit = 1 meter)
  *   2. Place it in assets/<key>.glb (e.g., assets/tavern_shell.glb)
  *   3. The loader will automatically use it instead of the fallback
+ *
+ * ══════════════════════════════════════════════════════════════
+ * AUTHORED-ASSET CONVENTION (Pack 1 — Physical Asset Workflow)
+ * ══════════════════════════════════════════════════════════════
+ *
+ * GLB Node-Naming Conventions:
+ *   Suffix-based classification — the runtime reads the LAST tag after
+ *   the final underscore (case-insensitive) to decide how each child
+ *   mesh behaves at gameplay level.
+ *
+ *   _COL   → Collision-only mesh: invisible (alpha=0), checkCollisions=true.
+ *            Use for simplified blocking volumes inside complex visual meshes.
+ *
+ *   _VIS   → Visual-only / decorative: rendered but never blocks the player.
+ *            Good for hanging signs, cobwebs, drapes, decals, foliage overlays.
+ *
+ *   _INT   → Interaction marker: invisible trigger volume.  Position/extents
+ *            define the interact-zone; the runtime auto-creates an interactable
+ *            entry from this mesh.  Attach metadata via glTF extras:
+ *              { "interactType": "chest", "promptOpen": "Open Chest" }
+ *
+ *   _PIV   → Pivot-point marker: an empty/mesh whose LOCAL origin marks
+ *            the hinge/pivot for animated parts (doors, lids).  The loader
+ *            records its position so the door system can call setPivotPoint().
+ *
+ *   _NAV   → Navigation hint: invisible mesh that marks walkable surfaces.
+ *            Reserved for future nav-mesh baking; currently just tagged.
+ *
+ *   (none) → Default: visible + collision decided by asset role.
+ *            Structural/interactable assets get collision; decorative do not.
+ *
+ * Asset Roles (CATALOG.role):
+ *   'structural'   — Walls, floors, roofs, pillars. Always block the player.
+ *   'interactable' — Doors, chests, barrels. Collision on body, interaction markers.
+ *   'decorative'   — Bottles, mugs, rugs, hanging lanterns. No collision.
+ *   'furniture'    — Tables, chairs, benches, shelves. Collision on body only.
+ *   'character'    — NPCs. Simple capsule collision; special shadow handling.
+ *   'environment'  — Trees, rocks, docks. Collision on body/base meshes.
+ *
+ * Scale Validation:
+ *   Each CATALOG entry may specify { scaleMin, scaleMax } in meters.
+ *   On GLB load, the bounding-box height is checked against this range.
+ *   A console warning fires if the asset is outside ±50% of expected size,
+ *   preventing silently broken imports from reaching gameplay.
+ *
+ * Pivot Convention:
+ *   All assets: pivot at world-space BASE-CENTER (feet of character,
+ *   bottom-center of furniture, hinge-edge of doors).
+ *   GLBs should be exported with the origin at this point.
+ *   If a _PIV child exists, the loader uses it to override the pivot.
  */
 
 (function(){
@@ -33,48 +83,81 @@ const _sourceLog = {};
 // ASSET CATALOG — every loadable asset
 // ============================================================
 const CATALOG = {
-  // Building shells
-  tavern_shell:     { glb: 'tavern_shell.glb',     fallback: 'buildTavernShell' },
-  tavern_roof:      { glb: 'tavern_roof.glb',       fallback: 'buildTavernRoof' },
+  // ── Building shells ──────────────────────────────────────
+  tavern_shell:     { glb: 'tavern_shell.glb',     fallback: 'buildTavernShell',
+                      role: 'structural', scaleMin: 5, scaleMax: 12 },
+  tavern_roof:      { glb: 'tavern_roof.glb',       fallback: 'buildTavernRoof',
+                      role: 'structural', scaleMin: 3, scaleMax: 8 },
 
-  // Furniture
-  table_tavern:     { glb: 'table_tavern.glb',      fallback: 'buildTable' },
-  bench_long:       { glb: 'bench_long.glb',         fallback: 'buildBench' },
-  shelf_wall:       { glb: 'shelf_wall.glb',         fallback: 'buildShelf' },
-  chair_simple:     { glb: 'chair_simple.glb',       fallback: 'buildChair' },
+  // ── Furniture ────────────────────────────────────────────
+  table_tavern:     { glb: 'table_tavern.glb',      fallback: 'buildTable',
+                      role: 'furniture', scaleMin: 0.6, scaleMax: 1.2 },
+  bench_long:       { glb: 'bench_long.glb',         fallback: 'buildBench',
+                      role: 'furniture', scaleMin: 0.3, scaleMax: 0.7 },
+  shelf_wall:       { glb: 'shelf_wall.glb',         fallback: 'buildShelf',
+                      role: 'furniture', scaleMin: 0.3, scaleMax: 1.0 },
+  chair_simple:     { glb: 'chair_simple.glb',       fallback: 'buildChair',
+                      role: 'furniture', scaleMin: 0.6, scaleMax: 1.2 },
 
-  // Props
-  barrel:           { glb: 'barrel.glb',             fallback: 'buildBarrel' },
-  crate_small:      { glb: 'crate_small.glb',        fallback: 'buildCrate' },
-  crate_large:      { glb: 'crate_large.glb',        fallback: 'buildCrateLarge' },
-  chest:            { glb: 'chest.glb',              fallback: 'buildChest' },
-  lantern_table:    { glb: 'lantern_table.glb',      fallback: 'buildLantern' },
-  lantern_hanging:  { glb: 'lantern_hanging.glb',    fallback: 'buildHangingLantern' },
-  bottle:           { glb: 'bottle.glb',             fallback: 'buildBottle' },
-  mug:              { glb: 'mug.glb',                fallback: 'buildMug' },
-  rug_rectangle:    { glb: 'rug_rectangle.glb',      fallback: 'buildRug' },
+  // ── Props (interactable) ─────────────────────────────────
+  barrel:           { glb: 'barrel.glb',             fallback: 'buildBarrel',
+                      role: 'interactable', scaleMin: 0.7, scaleMax: 1.3 },
+  crate_small:      { glb: 'crate_small.glb',        fallback: 'buildCrate',
+                      role: 'interactable', scaleMin: 0.4, scaleMax: 0.8 },
+  crate_large:      { glb: 'crate_large.glb',        fallback: 'buildCrateLarge',
+                      role: 'interactable', scaleMin: 0.6, scaleMax: 1.2 },
+  chest:            { glb: 'chest.glb',              fallback: 'buildChest',
+                      role: 'interactable', scaleMin: 0.3, scaleMax: 0.7 },
 
-  // Exterior
-  door_wood:        { glb: 'door_wood.glb',          fallback: 'buildDoor' },
-  palm_tree:        { glb: 'palm_tree.glb',          fallback: 'buildPalmTree' },
-  rock_large:       { glb: 'rock_large.glb',         fallback: 'buildRock' },
-  dock_section:     { glb: 'dock_section.glb',       fallback: 'buildDockSection' },
-  mooring_post:     { glb: 'mooring_post.glb',       fallback: 'buildMooringPost' },
-  sign_hanging:     { glb: 'sign_hanging.glb',       fallback: 'buildSign' },
+  // ── Props (decorative) ──────────────────────────────────
+  lantern_table:    { glb: 'lantern_table.glb',      fallback: 'buildLantern',
+                      role: 'decorative', scaleMin: 0.15, scaleMax: 0.5 },
+  lantern_hanging:  { glb: 'lantern_hanging.glb',    fallback: 'buildHangingLantern',
+                      role: 'decorative', scaleMin: 0.2, scaleMax: 0.7 },
+  bottle:           { glb: 'bottle.glb',             fallback: 'buildBottle',
+                      role: 'decorative', scaleMin: 0.15, scaleMax: 0.4 },
+  mug:              { glb: 'mug.glb',                fallback: 'buildMug',
+                      role: 'decorative', scaleMin: 0.08, scaleMax: 0.2 },
+  rug_rectangle:    { glb: 'rug_rectangle.glb',      fallback: 'buildRug',
+                      role: 'decorative', scaleMin: 0.01, scaleMax: 0.05 },
 
-  // Modular building kit
-  wall_module:      { glb: 'wall_module.glb',         fallback: 'buildWallModule' },
-  roof_module:      { glb: 'roof_module.glb',         fallback: 'buildRoofModule' },
-  floor_module:     { glb: 'floor_module.glb',        fallback: 'buildFloorModule' },
-  ceiling_beam:     { glb: 'ceiling_beam.glb',        fallback: 'buildCeilingBeamModule' },
-  stair_step:       { glb: 'stair_step.glb',          fallback: 'buildStairStep' },
-  railing_module:   { glb: 'railing_module.glb',      fallback: 'buildRailingModule' },
-  window_frame:     { glb: 'window_frame.glb',        fallback: 'buildWindowFrame' },
+  // ── Exterior / interactable ─────────────────────────────
+  door_wood:        { glb: 'door_wood.glb',          fallback: 'buildDoor',
+                      role: 'interactable', scaleMin: 1.8, scaleMax: 2.5 },
+  palm_tree:        { glb: 'palm_tree.glb',          fallback: 'buildPalmTree',
+                      role: 'environment', scaleMin: 4, scaleMax: 10 },
+  rock_large:       { glb: 'rock_large.glb',         fallback: 'buildRock',
+                      role: 'environment', scaleMin: 0.4, scaleMax: 3.0 },
+  dock_section:     { glb: 'dock_section.glb',       fallback: 'buildDockSection',
+                      role: 'structural', scaleMin: 0.5, scaleMax: 2.0 },
+  mooring_post:     { glb: 'mooring_post.glb',       fallback: 'buildMooringPost',
+                      role: 'environment', scaleMin: 0.8, scaleMax: 2.0 },
+  sign_hanging:     { glb: 'sign_hanging.glb',       fallback: 'buildSign',
+                      role: 'decorative', scaleMin: 1.5, scaleMax: 3.5 },
 
-  // Characters
-  npc_villager:     { glb: 'npc_villager.glb',       fallback: 'buildNPCVillager' },
-  npc_guard:        { glb: 'npc_guard.glb',          fallback: 'buildNPCGuard' },
-  npc_merchant:     { glb: 'npc_merchant.glb',       fallback: 'buildNPCMerchant' },
+  // ── Modular building kit ────────────────────────────────
+  wall_module:      { glb: 'wall_module.glb',         fallback: 'buildWallModule',
+                      role: 'structural', scaleMin: 2.5, scaleMax: 4.5 },
+  roof_module:      { glb: 'roof_module.glb',         fallback: 'buildRoofModule',
+                      role: 'structural', scaleMin: 1.5, scaleMax: 4.0 },
+  floor_module:     { glb: 'floor_module.glb',        fallback: 'buildFloorModule',
+                      role: 'structural', scaleMin: 0.1, scaleMax: 0.5 },
+  ceiling_beam:     { glb: 'ceiling_beam.glb',        fallback: 'buildCeilingBeamModule',
+                      role: 'structural', scaleMin: 0.1, scaleMax: 0.4 },
+  stair_step:       { glb: 'stair_step.glb',          fallback: 'buildStairStep',
+                      role: 'structural', scaleMin: 0.2, scaleMax: 0.6 },
+  railing_module:   { glb: 'railing_module.glb',      fallback: 'buildRailingModule',
+                      role: 'structural', scaleMin: 0.5, scaleMax: 1.5 },
+  window_frame:     { glb: 'window_frame.glb',        fallback: 'buildWindowFrame',
+                      role: 'structural', scaleMin: 0.6, scaleMax: 1.8 },
+
+  // ── Characters ──────────────────────────────────────────
+  npc_villager:     { glb: 'npc_villager.glb',       fallback: 'buildNPCVillager',
+                      role: 'character', scaleMin: 1.5, scaleMax: 2.0 },
+  npc_guard:        { glb: 'npc_guard.glb',          fallback: 'buildNPCGuard',
+                      role: 'character', scaleMin: 1.5, scaleMax: 2.1 },
+  npc_merchant:     { glb: 'npc_merchant.glb',       fallback: 'buildNPCMerchant',
+                      role: 'character', scaleMin: 1.5, scaleMax: 2.0 },
 };
 
 // ============================================================
@@ -100,8 +183,8 @@ const AssetLibrary = {
       return null;
     }
 
-    // Try GLB first
-    let model = await tryLoadGLB(entry.glb);
+    // Try GLB first (convention-aware loader)
+    let model = await tryLoadGLB(entry.glb, key);
     if(model){
       _sourceLog[key] = 'GLB';
     } else {
@@ -141,12 +224,78 @@ const AssetLibrary = {
 
   /** Get source log — shows GLB vs FALLBACK vs MISSING for each loaded key */
   getSources(){ return { ..._sourceLog }; },
+
+  /** Get role for a catalog key */
+  getRole(key){
+    const entry = CATALOG[key];
+    return entry ? (entry.role || 'unknown') : 'unknown';
+  },
+
+  /** Inspect convention data for a loaded asset (by its root node) */
+  getConvention(node){
+    return (node && node.metadata && node.metadata._convention) || null;
+  },
+
+  /** Get all catalog entries grouped by role */
+  getCatalogByRole(){
+    const groups = {};
+    for(const [key, entry] of Object.entries(CATALOG)){
+      const role = entry.role || 'unknown';
+      if(!groups[role]) groups[role] = [];
+      groups[role].push(key);
+    }
+    return groups;
+  },
+
+  /** Run convention compliance check on all loaded assets. Returns report. */
+  auditConventions(){
+    const report = { total: 0, glb: 0, fallback: 0, conventionTagged: 0, warnings: [] };
+    for(const [key, source] of Object.entries(_sourceLog)){
+      report.total++;
+      if(source === 'GLB'){
+        report.glb++;
+        const cached = _cache.get(key);
+        if(cached){
+          const conv = cached.metadata && cached.metadata._convention;
+          if(conv){
+            const tagged = conv.report.col + conv.report.vis + conv.report.int + conv.report.piv + conv.report.nav;
+            if(tagged > 0) report.conventionTagged++;
+          }
+        }
+      } else {
+        report.fallback++;
+      }
+    }
+    return report;
+  },
+
+  /** Convention tag reference (for debug overlay) */
+  CONVENTION_TAGS: ['COL', 'VIS', 'INT', 'PIV', 'NAV'],
+  ROLES: ['structural', 'interactable', 'decorative', 'furniture', 'character', 'environment'],
 };
 
 // ============================================================
-// GLB LOADER
+// CONVENTION SUFFIX PARSER
 // ============================================================
-async function tryLoadGLB(filename){
+// Reads the last _TAG from a mesh name (case-insensitive).
+// Returns: { baseName, tag } where tag is one of:
+//   'COL', 'VIS', 'INT', 'PIV', 'NAV', or null (no convention suffix).
+const CONVENTION_TAGS = new Set(['COL', 'VIS', 'INT', 'PIV', 'NAV']);
+
+function parseConventionTag(meshName){
+  const parts = meshName.split('_');
+  if(parts.length < 2) return { baseName: meshName, tag: null };
+  const last = parts[parts.length - 1].toUpperCase();
+  if(CONVENTION_TAGS.has(last)){
+    return { baseName: parts.slice(0, -1).join('_'), tag: last };
+  }
+  return { baseName: meshName, tag: null };
+}
+
+// ============================================================
+// GLB LOADER — convention-aware
+// ============================================================
+async function tryLoadGLB(filename, catalogKey){
   if(!filename) return null;
   try {
     const result = await BABYLON.SceneLoader.ImportMeshAsync(
@@ -155,10 +304,77 @@ async function tryLoadGLB(filename){
     if(result.meshes.length === 0) return null;
 
     const root = new BABYLON.TransformNode(filename.replace('.glb',''), _scene);
+    const conventionReport = { col: 0, vis: 0, int: 0, piv: 0, nav: 0, default: 0 };
+    const interactionMarkers = [];
+    let pivotPoint = null;
+
     for(const m of result.meshes){
       if(m.name === '__root__') continue;
       m.parent = root;
+
+      // Parse convention suffix
+      const { baseName, tag } = parseConventionTag(m.name);
+
+      if(tag === 'COL'){
+        // Collision-only: invisible blocking volume
+        m.isVisible = false;
+        m.checkCollisions = true;
+        m.isPickable = false;
+        conventionReport.col++;
+      } else if(tag === 'VIS'){
+        // Visual-only: decorative, no collision
+        m.checkCollisions = false;
+        m.isPickable = false;
+        conventionReport.vis++;
+      } else if(tag === 'INT'){
+        // Interaction marker: invisible trigger
+        m.isVisible = false;
+        m.checkCollisions = false;
+        m.isPickable = true;
+        // Pull metadata from glTF extras if present
+        const extras = m.metadata && m.metadata.gltf && m.metadata.gltf.extras;
+        interactionMarkers.push({
+          mesh: m,
+          baseName: baseName,
+          extras: extras || {}
+        });
+        conventionReport.int++;
+      } else if(tag === 'PIV'){
+        // Pivot marker: record position, then hide
+        pivotPoint = m.position.clone();
+        m.isVisible = false;
+        m.checkCollisions = false;
+        m.isPickable = false;
+        conventionReport.piv++;
+      } else if(tag === 'NAV'){
+        // Navigation hint: invisible, reserved for future nav-mesh
+        m.isVisible = false;
+        m.checkCollisions = false;
+        m.isPickable = false;
+        conventionReport.nav++;
+      } else {
+        conventionReport.default++;
+      }
     }
+
+    // Attach convention data to the root for downstream use
+    root.metadata = root.metadata || {};
+    root.metadata._convention = {
+      report: conventionReport,
+      interactionMarkers: interactionMarkers,
+      pivotPoint: pivotPoint,
+      source: 'GLB',
+      catalogKey: catalogKey || null
+    };
+
+    // Log convention usage for authored GLBs
+    const tagged = conventionReport.col + conventionReport.vis + conventionReport.int + conventionReport.piv + conventionReport.nav;
+    if(tagged > 0){
+      console.log(`[AssetConvention] ${filename}: ${tagged} convention-tagged nodes ` +
+        `(COL:${conventionReport.col} VIS:${conventionReport.vis} INT:${conventionReport.int} ` +
+        `PIV:${conventionReport.piv} NAV:${conventionReport.nav})`);
+    }
+
     return root;
   } catch(e){
     // GLB not found — expected, use fallback
@@ -167,18 +383,120 @@ async function tryLoadGLB(filename){
 }
 
 // ============================================================
-// MODEL SETUP — shadows, collisions
+// ROLE-BASED COLLISION RULES
+// ============================================================
+// Determines default collision behavior when no convention suffix is present.
+const ROLE_COLLISION = {
+  structural:   true,   // walls, floors, roofs — always block
+  interactable: true,   // barrels, chests — block on body meshes
+  furniture:    true,   // tables, chairs — block on body meshes
+  environment:  true,   // rocks, trees — block on body/base meshes
+  decorative:   false,  // bottles, mugs, rugs — never block
+  character:    false,  // NPCs — collision handled separately by capsule
+};
+
+// Names that identify the primary "body" mesh for collision (legacy compat)
+const BODY_MESH_NAMES = new Set(['body', 'base', 'collision', 'wall', 'floor', 'panel', 'hull']);
+
+function isBodyMesh(meshName){
+  const lower = meshName.toLowerCase();
+  for(const name of BODY_MESH_NAMES){
+    if(lower.includes(name)) return true;
+  }
+  return false;
+}
+
+// ============================================================
+// SCALE VALIDATION
+// ============================================================
+function validateScale(node, key){
+  const entry = CATALOG[key];
+  if(!entry || entry.scaleMin == null || entry.scaleMax == null) return;
+
+  // Compute world-space bounding box height
+  const childMeshes = node.getChildMeshes(false);
+  if(childMeshes.length === 0) return;
+
+  let minY = Infinity, maxY = -Infinity;
+  for(const m of childMeshes){
+    if(!m.isVisible && !m.getBoundingInfo) continue;
+    try {
+      const bi = m.getBoundingInfo();
+      const worldMin = bi.boundingBox.minimumWorld;
+      const worldMax = bi.boundingBox.maximumWorld;
+      if(worldMin.y < minY) minY = worldMin.y;
+      if(worldMax.y > maxY) maxY = worldMax.y;
+    } catch(e){ /* skip meshes without valid bounds */ }
+  }
+
+  const height = maxY - minY;
+  if(height <= 0) return;
+
+  const tolerance = 0.5; // ±50%
+  const expectedMin = entry.scaleMin * (1 - tolerance);
+  const expectedMax = entry.scaleMax * (1 + tolerance);
+
+  if(height < expectedMin || height > expectedMax){
+    console.warn(
+      `[AssetConvention] SCALE WARNING: "${key}" GLB height is ${height.toFixed(2)}m ` +
+      `(expected ${entry.scaleMin}–${entry.scaleMax}m). ` +
+      `Check export scale — convention is 1 unit = 1 meter.`
+    );
+  }
+}
+
+// ============================================================
+// MODEL SETUP — convention-aware shadows, collisions, pivots
 // ============================================================
 function setupModel(node, key){
+  const entry = CATALOG[key] || {};
+  const role = entry.role || 'decorative';
+  const defaultCollision = ROLE_COLLISION[role] !== false;
+  const convention = (node.metadata && node.metadata._convention) || null;
+
   node.getChildMeshes().forEach(m => {
-    if(_shadowGen) _shadowGen.addShadowCaster(m);
-    m.receiveShadows = true;
-    // Tag meshes that should block player
-    if(m.name.includes('collision') || m.name.includes('wall') ||
-       m.name.includes('body') || m.name.includes('base')){
-      m.checkCollisions = true;
+    // Skip convention-tagged meshes — they were already configured by tryLoadGLB
+    const { tag } = parseConventionTag(m.name);
+    if(tag) return;
+
+    // Shadows for all visible meshes
+    if(m.isVisible !== false){
+      if(_shadowGen) _shadowGen.addShadowCaster(m);
+      m.receiveShadows = true;
+    }
+
+    // Collision: role-based default, refined by mesh name
+    if(defaultCollision){
+      // For roles that collide, only body-like meshes block by default
+      // (structural role: everything blocks; others: only 'body' meshes)
+      if(role === 'structural'){
+        m.checkCollisions = true;
+      } else {
+        m.checkCollisions = isBodyMesh(m.name);
+      }
+    } else {
+      m.checkCollisions = false;
     }
   });
+
+  // Apply pivot from _PIV marker if present
+  if(convention && convention.pivotPoint){
+    // For interactable assets (doors, chests), set the pivot so
+    // animation code can rely on it
+    node.metadata = node.metadata || {};
+    node.metadata.pivotOffset = convention.pivotPoint.clone();
+  }
+
+  // Propagate interaction markers so game.js can use them
+  if(convention && convention.interactionMarkers.length > 0){
+    node.metadata = node.metadata || {};
+    node.metadata.interactionMarkers = convention.interactionMarkers;
+  }
+
+  // Scale validation (GLB-sourced assets only)
+  if(convention && convention.source === 'GLB'){
+    validateScale(node, key);
+  }
 }
 
 // ============================================================
@@ -195,9 +513,35 @@ function mat(name, hex, rough, metal){
   return m;
 }
 
-// Helper: enable shadows + collisions on a group
+// Helper: enable shadows + collisions on a group (convention-aware)
+// Pass collisionMeshNames for legacy compat, OR let the convention parser
+// handle _COL/_VIS suffixed mesh names automatically.
 function finalize(group, collisionMeshNames){
   group.getChildMeshes().forEach(m => {
+    const { tag } = parseConventionTag(m.name);
+
+    // Convention-tagged meshes: handle explicitly
+    if(tag === 'COL'){
+      m.isVisible = false;
+      m.checkCollisions = true;
+      m.isPickable = false;
+      return;
+    }
+    if(tag === 'VIS'){
+      m.checkCollisions = false;
+      m.isPickable = false;
+      if(_shadowGen) _shadowGen.addShadowCaster(m);
+      m.receiveShadows = true;
+      return;
+    }
+    if(tag === 'INT'){
+      m.isVisible = false;
+      m.checkCollisions = false;
+      m.isPickable = true;
+      return;
+    }
+
+    // Default: shadows for all, collision by name list
     if(_shadowGen) _shadowGen.addShadowCaster(m);
     m.receiveShadows = true;
     if(collisionMeshNames && collisionMeshNames.includes(m.name)){
@@ -212,29 +556,29 @@ function finalize(group, collisionMeshNames){
 // ============================================================
 const Fallbacks = {};
 
-// ---- TABLE ----
+// ---- TABLE (convention-named) ----
 Fallbacks.buildTable = function(){
   const g = new BABYLON.TransformNode('table', _scene);
   const woodMat = mat('tbl_wood', '#8b6c42', 0.88, 0);
   const darkMat = mat('tbl_dark', '#5c3a1e', 0.92, 0);
 
-  // Tabletop with beveled edges (use a slightly rounded box approach)
-  const top = BABYLON.MeshBuilder.CreateBox('body', { width: 1.6, height: 0.07, depth: 0.9 }, _scene);
+  // Tabletop — collision body (furniture: only this blocks)
+  const top = BABYLON.MeshBuilder.CreateBox('table_body_COL', { width: 1.6, height: 0.07, depth: 0.9 }, _scene);
   top.material = woodMat;
   top.position.y = 0.76;
   top.parent = g;
 
-  // Apron (under-table rail)
+  // Apron (under-table rail, decorative)
   for(const side of [{w:1.5,d:0.04,x:0,z:0.4},{w:1.5,d:0.04,x:0,z:-0.4},{w:0.04,d:0.76,x:0.73,z:0},{w:0.04,d:0.76,x:-0.73,z:0}]){
-    const apron = BABYLON.MeshBuilder.CreateBox('apron', {width:side.w,height:0.08,depth:side.d}, _scene);
+    const apron = BABYLON.MeshBuilder.CreateBox('table_apron_VIS', {width:side.w,height:0.08,depth:side.d}, _scene);
     apron.material = darkMat;
     apron.position.set(side.x, 0.68, side.z);
     apron.parent = g;
   }
 
-  // Legs with slight taper
+  // Legs with slight taper (decorative)
   for(const lp of [{x:-0.68,z:-0.38},{x:0.68,z:-0.38},{x:-0.68,z:0.38},{x:0.68,z:0.38}]){
-    const leg = BABYLON.MeshBuilder.CreateCylinder('leg', {
+    const leg = BABYLON.MeshBuilder.CreateCylinder('table_leg_VIS', {
       height: 0.72, diameterTop: 0.05, diameterBottom: 0.07, tessellation: 8
     }, _scene);
     leg.material = darkMat;
@@ -242,13 +586,13 @@ Fallbacks.buildTable = function(){
     leg.parent = g;
   }
 
-  // Cross brace
-  const brace = BABYLON.MeshBuilder.CreateBox('brace', {width:1.3,height:0.03,depth:0.03}, _scene);
-  brace.material = darkMat;
-  brace.position.set(0, 0.25, 0);
-  brace.parent = g;
+  // Cross braces (H-stretcher, decorative)
+  const brace = BABYLON.MeshBuilder.CreateBox('table_brace_VIS', {width:1.3,height:0.03,depth:0.03}, _scene);
+  brace.material = darkMat; brace.position.set(0, 0.25, 0); brace.parent = g;
+  const braceZ = BABYLON.MeshBuilder.CreateBox('table_braceZ_VIS', {width:0.03,height:0.03,depth:0.7}, _scene);
+  braceZ.material = darkMat; braceZ.position.set(0, 0.25, 0); braceZ.parent = g;
 
-  return finalize(g, ['body']);
+  return finalize(g);
 };
 
 // ---- BENCH ----
@@ -317,31 +661,43 @@ Fallbacks.buildShelf = function(){
   return finalize(g);
 };
 
-// ---- BARREL (high detail) ----
+// ---- BARREL (high detail, convention-named) ----
 Fallbacks.buildBarrel = function(){
   const g = new BABYLON.TransformNode('barrel', _scene);
   const woodMat = mat('barrel_wood', '#8B4513', 0.85, 0);
   const bandMat = mat('barrel_band', '#444444', 0.4, 0.7);
 
-  // Staves body — use lathe for proper barrel curve
+  // Staves body — use lathe for proper barrel curve (collision body)
   const bodyShape = [];
   for(let i = 0; i <= 20; i++){
     const t = i / 20;
     const y = t - 0.5;
-    const bulge = 1 + 0.08 * Math.sin(t * Math.PI); // slight barrel curve
+    const bulge = 1 + 0.08 * Math.sin(t * Math.PI);
     bodyShape.push(new BABYLON.Vector3(0.28 * bulge, y, 0));
   }
-  const body = BABYLON.MeshBuilder.CreateLathe('body', {
+  const body = BABYLON.MeshBuilder.CreateLathe('barrel_body_COL', {
     shape: bodyShape, tessellation: 16, sideOrientation: BABYLON.Mesh.DOUBLESIDE
   }, _scene);
   body.material = woodMat;
   body.position.y = 0.5;
-  body.scaling.y = 1.0;
   body.parent = g;
 
-  // Metal bands
+  // Visible stave lines (decorative vertical grooves)
+  const grooveMat = mat('barrel_groove', '#6B3310', 0.92, 0);
+  for(let i = 0; i < 8; i++){
+    const angle = (i / 8) * Math.PI * 2;
+    const groove = BABYLON.MeshBuilder.CreateBox('barrel_groove_VIS', {
+      width: 0.008, height: 0.9, depth: 0.005
+    }, _scene);
+    groove.material = grooveMat;
+    groove.position.set(Math.cos(angle) * 0.29, 0.5, Math.sin(angle) * 0.29);
+    groove.rotation.y = -angle;
+    groove.parent = g;
+  }
+
+  // Metal bands (decorative)
   for(const yOff of [-0.35, -0.1, 0.1, 0.35]){
-    const band = BABYLON.MeshBuilder.CreateTorus('band', {
+    const band = BABYLON.MeshBuilder.CreateTorus('barrel_band_VIS', {
       diameter: 0.6, thickness: 0.02, tessellation: 24
     }, _scene);
     band.material = bandMat;
@@ -350,54 +706,88 @@ Fallbacks.buildBarrel = function(){
   }
 
   // Lid circle
-  const lid = BABYLON.MeshBuilder.CreateCylinder('lid', {height:0.02,diameter:0.52,tessellation:16}, _scene);
+  const lid = BABYLON.MeshBuilder.CreateCylinder('barrel_lid_VIS', {
+    height: 0.02, diameter: 0.52, tessellation: 16
+  }, _scene);
   lid.material = woodMat; lid.position.y = 1.0; lid.parent = g;
 
-  return finalize(g, ['body']);
+  // Bung hole on the side (decorative detail)
+  const bung = BABYLON.MeshBuilder.CreateCylinder('barrel_bung_VIS', {
+    height: 0.01, diameter: 0.06, tessellation: 8
+  }, _scene);
+  bung.material = bandMat;
+  bung.rotation.z = Math.PI / 2;
+  bung.position.set(0.29, 0.5, 0);
+  bung.parent = g;
+
+  return finalize(g);
 };
 
-// ---- CRATE (small) ----
+// ---- CRATE (small, convention-named) ----
 Fallbacks.buildCrate = function(){
   const g = new BABYLON.TransformNode('crate', _scene);
   const woodMat = mat('crate_wood', '#A0722A', 0.9, 0);
   const trimMat = mat('crate_trim', '#7A5220', 0.95, 0);
 
-  const box = BABYLON.MeshBuilder.CreateBox('body', {width:0.55,height:0.55,depth:0.55}, _scene);
+  // Main body — collision
+  const box = BABYLON.MeshBuilder.CreateBox('crate_body_COL', {width:0.55,height:0.55,depth:0.55}, _scene);
   box.material = woodMat; box.position.y = 0.275; box.parent = g;
 
-  // Plank lines on each face
-  for(let i = -0.2; i <= 0.2; i += 0.1){
-    const line = BABYLON.MeshBuilder.CreateBox('line', {width:0.56,height:0.01,depth:0.01}, _scene);
-    line.material = trimMat; line.position.set(0, 0.275 + i, 0.28); line.parent = g;
+  // Plank lines on front + back faces (decorative)
+  for(const zSide of [0.28, -0.28]){
+    for(let i = -0.2; i <= 0.2; i += 0.1){
+      const line = BABYLON.MeshBuilder.CreateBox('crate_plank_VIS', {width:0.54,height:0.01,depth:0.005}, _scene);
+      line.material = trimMat; line.position.set(0, 0.275 + i, zSide); line.parent = g;
+    }
   }
 
-  // Corner braces
+  // Corner braces (decorative)
   for(const c of [{x:-0.28,z:0.28},{x:0.28,z:0.28},{x:-0.28,z:-0.28},{x:0.28,z:-0.28}]){
-    const brace = BABYLON.MeshBuilder.CreateBox('brace', {width:0.03,height:0.56,depth:0.03}, _scene);
+    const brace = BABYLON.MeshBuilder.CreateBox('crate_brace_VIS', {width:0.03,height:0.56,depth:0.03}, _scene);
     brace.material = trimMat; brace.position.set(c.x, 0.28, c.z); brace.parent = g;
   }
 
-  return finalize(g, ['body']);
+  // Top cross brace
+  const topBrace = BABYLON.MeshBuilder.CreateBox('crate_topbrace_VIS', {width:0.56,height:0.03,depth:0.03}, _scene);
+  topBrace.material = trimMat; topBrace.position.set(0, 0.555, 0); topBrace.parent = g;
+
+  return finalize(g);
 };
 
-// ---- CRATE (large) ----
+// ---- CRATE (large, convention-named) ----
 Fallbacks.buildCrateLarge = function(){
   const g = new BABYLON.TransformNode('crateLg', _scene);
   const woodMat = mat('crate_wood', '#A0722A', 0.9, 0);
   const trimMat = mat('crate_trim', '#7A5220', 0.95, 0);
 
-  const box = BABYLON.MeshBuilder.CreateBox('body', {width:0.8,height:0.8,depth:0.8}, _scene);
+  // Main body — collision
+  const box = BABYLON.MeshBuilder.CreateBox('crate_body_COL', {width:0.8,height:0.8,depth:0.8}, _scene);
   box.material = woodMat; box.position.y = 0.4; box.parent = g;
 
-  // Cross braces
+  // Cross braces on front + back (decorative)
   for(const face of [0.41, -0.41]){
-    const h = BABYLON.MeshBuilder.CreateBox('h', {width:0.82,height:0.04,depth:0.04}, _scene);
+    const h = BABYLON.MeshBuilder.CreateBox('crate_hbrace_VIS', {width:0.82,height:0.04,depth:0.04}, _scene);
     h.material = trimMat; h.position.set(0, 0.4, face); h.parent = g;
-    const v = BABYLON.MeshBuilder.CreateBox('v', {width:0.04,height:0.82,depth:0.04}, _scene);
+    const v = BABYLON.MeshBuilder.CreateBox('crate_vbrace_VIS', {width:0.04,height:0.82,depth:0.04}, _scene);
     v.material = trimMat; v.position.set(0, 0.4, face); v.parent = g;
   }
 
-  return finalize(g, ['body']);
+  // Side braces (decorative)
+  for(const face of [0.41, -0.41]){
+    const sb = BABYLON.MeshBuilder.CreateBox('crate_sidebrace_VIS', {width:0.04,height:0.82,depth:0.04}, _scene);
+    sb.material = trimMat; sb.position.set(face, 0.4, 0); sb.parent = g;
+  }
+
+  // Rope handle on one side (decorative)
+  const rope = BABYLON.MeshBuilder.CreateTorus('crate_rope_VIS', {
+    diameter: 0.15, thickness: 0.012, tessellation: 12
+  }, _scene);
+  rope.material = mat('rope_tan', '#c8b888', 0.95, 0);
+  rope.rotation.z = Math.PI / 2;
+  rope.position.set(0.42, 0.5, 0);
+  rope.parent = g;
+
+  return finalize(g);
 };
 
 // ---- LANTERN (table) ----
@@ -512,35 +902,49 @@ Fallbacks.buildRug = function(){
   return finalize(g);
 };
 
-// ---- DOOR ----
+// ---- DOOR (convention-named) ----
 Fallbacks.buildDoor = function(){
   const g = new BABYLON.TransformNode('door', _scene);
   const woodMat = mat('door_wood', '#6a4a2a', 0.88, 0);
   const metalMat = mat('door_metal', '#3a3a3a', 0.4, 0.7);
+  const plankMat = mat('door_plank', '#5a3a1a', 0.92, 0);
 
-  // Main panel
-  const panel = BABYLON.MeshBuilder.CreateBox('body', {width:0.95,height:2.1,depth:0.06}, _scene);
+  // Main panel — collision body
+  const panel = BABYLON.MeshBuilder.CreateBox('door_panel_COL', {width:0.95,height:2.1,depth:0.06}, _scene);
   panel.material = woodMat; panel.position.y = 1.05; panel.parent = g;
 
-  // Horizontal planks
-  for(const y of [0.35, 1.05, 1.75]){
-    const plank = BABYLON.MeshBuilder.CreateBox('plank', {width:0.96,height:0.03,depth:0.065}, _scene);
-    plank.material = mat('door_plank', '#5a3a1a', 0.92, 0);
-    plank.position.set(0, y, 0.001); plank.parent = g;
+  // Vertical stiles (decorative)
+  for(const x of [-0.38, 0, 0.38]){
+    const stile = BABYLON.MeshBuilder.CreateBox('door_stile_VIS', {width:0.04,height:2.0,depth:0.065}, _scene);
+    stile.material = plankMat; stile.position.set(x, 1.05, 0.001); stile.parent = g;
   }
 
-  // Handle
-  const handle = BABYLON.MeshBuilder.CreateCylinder('handle', {height:0.12,diameter:0.03,tessellation:8}, _scene);
+  // Horizontal rails (decorative)
+  for(const y of [0.25, 1.05, 1.85]){
+    const rail = BABYLON.MeshBuilder.CreateBox('door_rail_VIS', {width:0.93,height:0.04,depth:0.065}, _scene);
+    rail.material = plankMat; rail.position.set(0, y, 0.001); rail.parent = g;
+  }
+
+  // Handle plate + grip
+  const handlePlate = BABYLON.MeshBuilder.CreateBox('door_handlePlate_VIS', {width:0.04,height:0.14,depth:0.01}, _scene);
+  handlePlate.material = metalMat; handlePlate.position.set(0.33, 1.0, 0.035); handlePlate.parent = g;
+  const handle = BABYLON.MeshBuilder.CreateCylinder('door_handle_VIS', {height:0.12,diameter:0.025,tessellation:8}, _scene);
   handle.material = metalMat; handle.rotation.x = Math.PI/2;
-  handle.position.set(0.33, 1.0, 0.04); handle.parent = g;
+  handle.position.set(0.33, 1.0, 0.055); handle.parent = g;
 
-  // Hinge plates
+  // Hinge plates + pins
   for(const y of [0.3, 1.8]){
-    const hinge = BABYLON.MeshBuilder.CreateBox('hinge', {width:0.04,height:0.12,depth:0.02}, _scene);
-    hinge.material = metalMat; hinge.position.set(-0.46, y, 0.04); hinge.parent = g;
+    const hinge = BABYLON.MeshBuilder.CreateBox('door_hinge_VIS', {width:0.06,height:0.08,depth:0.015}, _scene);
+    hinge.material = metalMat; hinge.position.set(-0.46, y, 0.035); hinge.parent = g;
+    const pin = BABYLON.MeshBuilder.CreateCylinder('door_pin_VIS', {height:0.1,diameter:0.015,tessellation:6}, _scene);
+    pin.material = metalMat; pin.position.set(-0.475, y, 0.0); pin.parent = g;
   }
 
-  return finalize(g, ['body']);
+  // Pivot marker (hinge edge)
+  const pivMarker = BABYLON.MeshBuilder.CreateBox('door_hinge_PIV', {width:0.01,height:0.01,depth:0.01}, _scene);
+  pivMarker.position.set(-0.475, 0, 0); pivMarker.parent = g;
+
+  return finalize(g);
 };
 
 // ---- PALM TREE ----
