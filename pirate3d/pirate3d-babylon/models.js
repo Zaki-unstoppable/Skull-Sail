@@ -173,10 +173,6 @@ const AssetLibrary = {
 
   /** Load or generate an asset by key. Returns a clone each time. */
   async load(key){
-    if(_cache.has(key)){
-      return _cache.get(key).clone(key + '_clone', null);
-    }
-
     const entry = CATALOG[key];
     if(!entry){
       console.warn(`[AssetLibrary] Unknown asset key: ${key}`);
@@ -188,7 +184,8 @@ const AssetLibrary = {
     if(model){
       _sourceLog[key] = 'GLB';
     } else {
-      // Use procedural fallback
+      // Use procedural fallback — build fresh each time
+      // (TransformNode.clone doesn't deep-copy mesh children properly)
       const builder = Fallbacks[entry.fallback];
       if(builder){
         model = builder();
@@ -202,12 +199,7 @@ const AssetLibrary = {
 
     // Setup: shadows, collision tags
     setupModel(model, key);
-    _cache.set(key, model);
-    model.setEnabled(false); // template is hidden; clones are visible
-
-    const clone = model.clone(key + '_clone', null);
-    clone.setEnabled(true);
-    return clone;
+    return model;
   },
 
   /** Check if a GLB file exists for a given key */
@@ -541,9 +533,13 @@ function finalize(group, collisionMeshNames){
       return;
     }
 
-    // Default: shadows for all, collision by name list
+    // Default: shadows for all; body meshes get collision automatically
     if(_shadowGen) _shadowGen.addShadowCaster(m);
     m.receiveShadows = true;
+    // Meshes with 'body' in the name are visible collision bodies
+    if(/body/i.test(m.name)){
+      m.checkCollisions = true;
+    }
     if(collisionMeshNames && collisionMeshNames.includes(m.name)){
       m.checkCollisions = true;
     }
@@ -563,7 +559,7 @@ Fallbacks.buildTable = function(){
   const darkMat = mat('tbl_dark', '#5c3a1e', 0.92, 0);
 
   // Tabletop — collision body (furniture: only this blocks)
-  const top = BABYLON.MeshBuilder.CreateBox('table_body_COL', { width: 1.6, height: 0.07, depth: 0.9 }, _scene);
+  const top = BABYLON.MeshBuilder.CreateBox('table_body', { width: 1.6, height: 0.07, depth: 0.9 }, _scene);
   top.material = woodMat;
   top.position.y = 0.76;
   top.parent = g;
@@ -675,7 +671,7 @@ Fallbacks.buildBarrel = function(){
     const bulge = 1 + 0.08 * Math.sin(t * Math.PI);
     bodyShape.push(new BABYLON.Vector3(0.28 * bulge, y, 0));
   }
-  const body = BABYLON.MeshBuilder.CreateLathe('barrel_body_COL', {
+  const body = BABYLON.MeshBuilder.CreateLathe('barrel_body', {
     shape: bodyShape, tessellation: 16, sideOrientation: BABYLON.Mesh.DOUBLESIDE
   }, _scene);
   body.material = woodMat;
@@ -730,7 +726,7 @@ Fallbacks.buildCrate = function(){
   const trimMat = mat('crate_trim', '#7A5220', 0.95, 0);
 
   // Main body — collision
-  const box = BABYLON.MeshBuilder.CreateBox('crate_body_COL', {width:0.55,height:0.55,depth:0.55}, _scene);
+  const box = BABYLON.MeshBuilder.CreateBox('crate_body', {width:0.55,height:0.55,depth:0.55}, _scene);
   box.material = woodMat; box.position.y = 0.275; box.parent = g;
 
   // Plank lines on front + back faces (decorative)
@@ -761,7 +757,7 @@ Fallbacks.buildCrateLarge = function(){
   const trimMat = mat('crate_trim', '#7A5220', 0.95, 0);
 
   // Main body — collision
-  const box = BABYLON.MeshBuilder.CreateBox('crate_body_COL', {width:0.8,height:0.8,depth:0.8}, _scene);
+  const box = BABYLON.MeshBuilder.CreateBox('crate_body', {width:0.8,height:0.8,depth:0.8}, _scene);
   box.material = woodMat; box.position.y = 0.4; box.parent = g;
 
   // Cross braces on front + back (decorative)
@@ -910,7 +906,7 @@ Fallbacks.buildDoor = function(){
   const plankMat = mat('door_plank', '#5a3a1a', 0.92, 0);
 
   // Main panel — collision body
-  const panel = BABYLON.MeshBuilder.CreateBox('door_panel_COL', {width:0.95,height:2.1,depth:0.06}, _scene);
+  const panel = BABYLON.MeshBuilder.CreateBox('door_panel_body', {width:0.95,height:2.1,depth:0.06}, _scene);
   panel.material = woodMat; panel.position.y = 1.05; panel.parent = g;
 
   // Vertical stiles (decorative)

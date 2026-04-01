@@ -120,6 +120,12 @@ MAT.fabricDark = makeMat('fabricDark', '#2a1a1a', 0.95, 0);
 MAT.glass      = makeMat('glass',     '#a0c0d0', 0.1, 0.05);
 MAT.glass.alpha = 0.3;
 MAT.plaster    = makeMat('plaster',   '#c8b898', 0.92, 0);
+MAT.plasterWarm = makeMat('plasterWarm', '#d4c4a0', 0.90, 0);
+MAT.timber     = makeMat('timber',    '#4a2e14', 0.88, 0);  // exposed beam timber
+MAT.timberLight = makeMat('timberLight', '#6b4a2a', 0.85, 0);
+MAT.thatch     = makeMat('thatch',    '#8a7a4a', 0.95, 0);  // thatch/reed roof
+MAT.stoneFound = makeMat('stoneFound', '#706858', 0.95, 0);  // foundation stone
+MAT.stoneFoundDark = makeMat('stoneFoundDark', '#585040', 0.95, 0);
 MAT.flame      = makeMat('flame',     '#ff6600', 0.5, 0);
 MAT.flame.emissiveColor = BABYLON.Color3.FromHexString('#ff4400');
 MAT.flame.emissiveIntensity = 2;
@@ -175,6 +181,147 @@ const island = createIslandGround();
 // ============================================================
 // The tavern: ~8m x 6m footprint, ~4m walls, pitched roof
 // Real scale: doors 2.1m tall, 0.9m wide; ceilings ~3.5m; walls 0.3m thick
+
+// ============================================================
+// 3b. ARCHITECTURAL DETAIL HELPERS (Pack 2 — art pass)
+// ============================================================
+
+/** Add simple timber trim beams to a wall face (visual-only, no collision).
+ *  Creates: 2 corner posts, 1 top plate, 1 sill plate, 1 mid beam = 5 pieces per wall.
+ *  face: 'front'|'back'|'left'|'right' — determines which axis beams run along. */
+function addTimberFrame(parent, opts){
+  const { x, y, z, wallW, wallH, wallD, face, mat } = opts;
+  const BW = 0.07; // beam cross-section width
+  const protrude = 0.03; // how far beams sit proud of wall
+  const m = mat || MAT.timber;
+  const isFB = (face === 'front' || face === 'back');
+  const sign = (face === 'front' || face === 'right') ? 1 : -1;
+
+  function beam(name, w, h, d, bx, by, bz){
+    const b = BABYLON.MeshBuilder.CreateBox(name+'_VIS', { width:w, height:h, depth:d }, scene);
+    b.material = m; b.position.set(bx, by, bz);
+    b.receiveShadows = true; shadowGen.addShadowCaster(b);
+    b.checkCollisions = false; b.parent = parent;
+    return b;
+  }
+
+  // Offset position: sit beams on the outer face of the wall
+  const oz = isFB ? z + sign * (wallD/2 + protrude/2) : z;
+  const ox = isFB ? x : x + sign * (wallD/2 + protrude/2);
+
+  if(isFB){
+    // Horizontal beams span the wall width
+    beam('sill', wallW + BW, BW, protrude, ox, y - wallH/2 + BW/2, oz);
+    beam('top',  wallW + BW, BW, protrude, ox, y + wallH/2 - BW/2, oz);
+    beam('mid',  wallW + BW, BW, protrude, ox, y,                   oz);
+    // Corner posts
+    beam('cL', BW, wallH, protrude, ox - wallW/2 + BW/2, y, oz);
+    beam('cR', BW, wallH, protrude, ox + wallW/2 - BW/2, y, oz);
+  } else {
+    // Side walls: beams span depth (Z)
+    beam('sill', protrude, BW, wallW + BW, ox, y - wallH/2 + BW/2, oz);
+    beam('top',  protrude, BW, wallW + BW, ox, y + wallH/2 - BW/2, oz);
+    beam('mid',  protrude, BW, wallW + BW, ox, y,                   oz);
+    beam('cF', protrude, wallH, BW, ox, y, oz + wallW/2 - BW/2);
+    beam('cB', protrude, wallH, BW, ox, y, oz - wallW/2 + BW/2);
+  }
+}
+
+/** Add stone foundation coursework to a building */
+function addFoundation(parent, x, y, z, w, d, h){
+  const courses = 4;
+  const courseH = h / courses;
+  const meshes = [];
+  for(let c = 0; c < courses; c++){
+    // Slight inset each course up (battered foundation)
+    const inset = c * 0.015;
+    const stone = BABYLON.MeshBuilder.CreateBox('found_VIS_'+c, {
+      width: w - inset * 2, height: courseH - 0.005, depth: d - inset * 2
+    }, scene);
+    stone.material = c % 2 === 0 ? MAT.stoneFound : MAT.stoneFoundDark;
+    stone.position.set(x, y + courseH/2 + c * courseH, z);
+    stone.receiveShadows = true;
+    stone.checkCollisions = false;
+    stone.parent = parent;
+    meshes.push(stone);
+  }
+  // Capstone slab
+  const cap = BABYLON.MeshBuilder.CreateBox('foundCap_VIS', {
+    width: w + 0.06, height: 0.04, depth: d + 0.06
+  }, scene);
+  cap.material = MAT.stoneFoundDark;
+  cap.position.set(x, y + h + 0.02, z);
+  cap.receiveShadows = true;
+  cap.checkCollisions = false;
+  cap.parent = parent;
+  meshes.push(cap);
+  return meshes;
+}
+
+/** Add rafter tails at eaves */
+function addRafterTails(parent, x, y, z, roofW, depth, angle, count, side){
+  const spacing = roofW / (count + 1);
+  for(let i = 1; i <= count; i++){
+    const rx = x - roofW/2 + i * spacing;
+    const tail = BABYLON.MeshBuilder.CreateBox('rafter_VIS_'+side+'_'+i, {
+      width: 0.08, height: 0.06, depth: 0.5
+    }, scene);
+    tail.material = MAT.timber;
+    tail.position.set(rx, y, z);
+    tail.rotation.x = side === 'back' ? -angle : angle;
+    tail.receiveShadows = true;
+    shadowGen.addShadowCaster(tail);
+    tail.checkCollisions = false;
+    tail.parent = parent;
+  }
+}
+
+/** Add stair stringers (the angled side boards) */
+function addStairStringers(parent, x, z, stepW, totalH, totalD, backZ){
+  // Left stringer
+  const strLen = Math.sqrt(totalH * totalH + totalD * totalD);
+  const strAngle = Math.atan2(totalH, totalD);
+  for(let side = 0; side < 2; side++){
+    const sx = x + (side === 0 ? -stepW/2 - 0.03 : stepW/2 + 0.03);
+    const stringer = BABYLON.MeshBuilder.CreateBox('stringer_VIS_'+side, {
+      width: 0.06, height: 0.2, depth: strLen
+    }, scene);
+    stringer.material = MAT.timber;
+    stringer.position.set(sx, totalH/2, backZ + totalD/2);
+    stringer.rotation.x = -strAngle;
+    stringer.receiveShadows = true;
+    stringer.checkCollisions = false;
+    stringer.parent = parent;
+  }
+}
+
+/** Add newel posts at stair top/bottom */
+function addNewelPosts(parent, x, z, topY, botZ, topZ, stepW){
+  const posts = [
+    { px: x - stepW/2, py: 0.5, pz: botZ, h: 1.0 },       // bottom left
+    { px: x - stepW/2, py: topY + 0.5, pz: topZ, h: 1.0 }, // top left
+  ];
+  posts.forEach((p, i) => {
+    // Square post with chamfered top
+    const post = BABYLON.MeshBuilder.CreateBox('newel_VIS_'+i, {
+      width: 0.1, height: p.h, depth: 0.1
+    }, scene);
+    post.material = MAT.timber;
+    post.position.set(p.px, p.py, p.pz);
+    post.receiveShadows = true;
+    shadowGen.addShadowCaster(post);
+    post.checkCollisions = false;
+    post.parent = parent;
+    // Finial cap
+    const cap = BABYLON.MeshBuilder.CreateBox('newelCap_VIS_'+i, {
+      width: 0.14, height: 0.04, depth: 0.14
+    }, scene);
+    cap.material = MAT.woodDark;
+    cap.position.set(p.px, p.py + p.h/2 + 0.02, p.pz);
+    cap.checkCollisions = false;
+    cap.parent = parent;
+  });
+}
 
 function createTavern(){
   const building = new BABYLON.TransformNode('tavern', scene);
@@ -314,24 +461,28 @@ function createTavern(){
 
   // -- Roof (pitched) -- sits on top of second floor
   const SF_WH_R = 2.8; // second floor wall height (must match later)
-  const roofBaseY = WH + SF_WH_R; // top of second floor walls
-  const roofAngle = Math.PI * 0.2;
-  const roofW = FW + 0.8;
-  const roofLen = (FD/2) / Math.cos(roofAngle) + 0.6;
+  const roofBaseY = WH + SF_WH_R; // top of second floor walls (6.3m)
+  const roofAngle = Math.PI * 0.18; // ~32° pitch
+  const roofW = FW + 0.8;  // overhang on left/right
+  const halfSpan = FD / 2 + 0.4; // half-span in Z + eave overhang
+  const roofLen = halfSpan / Math.cos(roofAngle); // panel length along slope
   const roofThick = 0.12;
+  const ridgeHeight = Math.tan(roofAngle) * halfSpan; // how high the ridge rises above eave
 
+  // Back slope (rotates around center, positioned so top edge = ridge, bottom = eave)
   const roofL = BABYLON.MeshBuilder.CreateBox('roofL', { width: roofW, height: roofThick, depth: roofLen }, scene);
   roofL.material = MAT.roof;
   roofL.rotation.x = -roofAngle;
-  roofL.position.set(0, roofBaseY + Math.sin(roofAngle) * FD/4 + 0.3, -FD/4 * Math.cos(roofAngle) * 0.3);
+  roofL.position.set(0, roofBaseY + ridgeHeight / 2, -halfSpan / 2 * Math.cos(roofAngle));
   roofL.receiveShadows = true;
   shadowGen.addShadowCaster(roofL);
   roofL.parent = building;
 
+  // Front slope
   const roofR = BABYLON.MeshBuilder.CreateBox('roofR', { width: roofW, height: roofThick, depth: roofLen }, scene);
   roofR.material = MAT.roof;
   roofR.rotation.x = roofAngle;
-  roofR.position.set(0, roofBaseY + Math.sin(roofAngle) * FD/4 + 0.3, FD/4 * Math.cos(roofAngle) * 0.3);
+  roofR.position.set(0, roofBaseY + ridgeHeight / 2, halfSpan / 2 * Math.cos(roofAngle));
   roofR.receiveShadows = true;
   shadowGen.addShadowCaster(roofR);
   roofR.parent = building;
@@ -568,6 +719,144 @@ function createTavern(){
   sfCeiling.material = MAT.woodDark;
   sfCeiling.position.set(0, SF_H + SF_WH - 0.05, 0);
   sfCeiling.parent = building;
+
+  // ==========================================================
+  // ARCHITECTURAL DETAIL PASS (Pack 2 — beautiful art)
+  // ==========================================================
+
+  // --- STONE FOUNDATION ---
+  addFoundation(building, 0, -0.1, 0, FW + 0.2, FD + 0.2, 0.4);
+  // Back room foundation
+  addFoundation(building, backDoorX, -0.1, brZ, BRW + 0.2, BRD + 0.2, 0.35);
+
+  // --- TIMBER FRAMING (half-timbered exterior) ---
+  // Front wall — skip zone around door
+  const doorSkip = [{ min: doorCenterX - DW/2 - 0.2, max: doorCenterX + DW/2 + 0.2 }];
+  addTimberFrame(building, {
+    x: 0, y: WH/2, z: FD/2 - W/2, wallW: FW, wallH: WH, wallD: W,
+    face: 'front', skipZones: doorSkip
+  });
+  // Back wall — skip zone around back door
+  const backDoorSkip = [{ min: backDoorX - backDoorW/2 - 0.2, max: backDoorX + backDoorW/2 + 0.2 }];
+  addTimberFrame(building, {
+    x: 0, y: WH/2, z: -FD/2 + W/2, wallW: FW, wallH: WH, wallD: W,
+    face: 'back', skipZones: backDoorSkip
+  });
+  // Left wall
+  addTimberFrame(building, {
+    x: -FW/2 + W/2, y: WH/2, z: 0, wallW: FD, wallH: WH, wallD: W,
+    face: 'left'
+  });
+  // Right wall
+  addTimberFrame(building, {
+    x: FW/2 - W/2, y: WH/2, z: 0, wallW: FD, wallH: WH, wallD: W,
+    face: 'right'
+  });
+
+  // --- ROOF DETAILS ---
+  // Ridge beam along the peak
+  const ridgeY = roofBaseY + ridgeHeight;
+  const ridgeBeam = BABYLON.MeshBuilder.CreateBox('ridgeBeam_VIS', {
+    width: roofW + 0.3, height: 0.12, depth: 0.12
+  }, scene);
+  ridgeBeam.material = MAT.timber;
+  ridgeBeam.position.set(0, ridgeY, 0);
+  ridgeBeam.receiveShadows = true;
+  shadowGen.addShadowCaster(ridgeBeam);
+  ridgeBeam.checkCollisions = false;
+  ridgeBeam.parent = building;
+
+  // Fascia boards along eave edges
+  const eaveY = roofBaseY + 0.06;
+  for(const side of [-1, 1]){
+    const fascia = BABYLON.MeshBuilder.CreateBox('fascia_VIS_'+(side>0?'f':'b'), {
+      width: roofW + 0.2, height: 0.1, depth: 0.06
+    }, scene);
+    fascia.material = MAT.timber;
+    fascia.position.set(0, eaveY, side * (FD/2 + 0.3));
+    fascia.receiveShadows = true;
+    fascia.checkCollisions = false;
+    fascia.parent = building;
+  }
+
+  // --- STAIR UPGRADES ---
+  addStairStringers(building, stairX, 0, stairOpenW - 0.1, SF_H, stairOpenD,
+    -FD/2 + W + sfFloorBackD);
+  addNewelPosts(building, stairX, 0, SF_H,
+    -FD/2 + W + sfFloorBackD, -FD/2 + W + sfFloorBackD + stairOpenD, stairOpenW - 0.1);
+
+  // Step nosing (front edge overhang on each step)
+  for(let i = 0; i < stairSteps; i++){
+    const nosing = BABYLON.MeshBuilder.CreateBox('nosing_VIS_'+i, {
+      width: stairOpenW - 0.08, height: 0.02, depth: 0.04
+    }, scene);
+    nosing.material = MAT.woodDark;
+    nosing.position.set(stairX, stepH + i * stepH,
+      -FD/2 + W + sfFloorBackD + (i + 1) * stepD);
+    nosing.checkCollisions = false;
+    nosing.parent = building;
+  }
+
+  // --- WINDOW SILLS AND LINTELS ---
+  // Add stone sills under each window position (front wall windows)
+  const windowPositions = [
+    { x: -2.0, z: FD/2, face: 'front' },
+    { x: -2.0, z: FD/2, y: SF_H + 1.0, face: 'front' },
+    { x: 2.0, z: FD/2, y: SF_H + 1.0, face: 'front' },
+  ];
+  windowPositions.forEach((wp, i) => {
+    const wy = wp.y || 1.2;
+    const sill = BABYLON.MeshBuilder.CreateBox('winSill_VIS_'+i, {
+      width: 0.8, height: 0.06, depth: W + 0.1
+    }, scene);
+    sill.material = MAT.stoneFound;
+    sill.position.set(wp.x, wy - 0.4, wp.z);
+    sill.checkCollisions = false;
+    sill.parent = building;
+    // Lintel above
+    const wLintel = BABYLON.MeshBuilder.CreateBox('winLintel_VIS_'+i, {
+      width: 0.85, height: 0.08, depth: W + 0.08
+    }, scene);
+    wLintel.material = MAT.timber;
+    wLintel.position.set(wp.x, wy + 0.5, wp.z);
+    wLintel.checkCollisions = false;
+    wLintel.parent = building;
+  });
+
+  // --- PORCH/AWNING over front door ---
+  const awningW = DW + 1.2;
+  const awningD = 0.8;
+  const awningY = DH + 0.15;
+  const awningRoof = BABYLON.MeshBuilder.CreateBox('awning_VIS', {
+    width: awningW, height: 0.06, depth: awningD
+  }, scene);
+  awningRoof.material = MAT.roof;
+  awningRoof.position.set(doorCenterX, awningY, FD/2 + awningD/2 - 0.1);
+  awningRoof.rotation.x = -0.15;
+  awningRoof.receiveShadows = true;
+  shadowGen.addShadowCaster(awningRoof);
+  awningRoof.checkCollisions = false;
+  awningRoof.parent = building;
+  // Awning support brackets
+  for(const side of [-1, 1]){
+    const sup = BABYLON.MeshBuilder.CreateBox('awingSup_VIS', {
+      width: 0.06, height: 0.06, depth: awningD - 0.1
+    }, scene);
+    sup.material = MAT.timber;
+    sup.position.set(doorCenterX + side * (awningW/2 - 0.1), awningY - 0.06, FD/2 + awningD/2 - 0.15);
+    sup.rotation.x = -0.15;
+    sup.checkCollisions = false;
+    sup.parent = building;
+    // Diagonal brace
+    const brace = BABYLON.MeshBuilder.CreateBox('awningBrace_VIS', {
+      width: 0.04, height: 0.5, depth: 0.04
+    }, scene);
+    brace.material = MAT.timber;
+    brace.position.set(doorCenterX + side * (awningW/2 - 0.1), awningY - 0.3, FD/2 + awningD/3);
+    brace.rotation.x = -0.6;
+    brace.checkCollisions = false;
+    brace.parent = building;
+  }
 
   // Store door info for interaction system
   building.metadata = {
@@ -886,7 +1175,7 @@ function createDoorLeaf(building){
   leafRoot.position.set(bx + cx - DW/2, by + 0.15, bz + cz);
 
   // Door panel — offset so the hinge edge is at local X=0
-  const panel = BABYLON.MeshBuilder.CreateBox('door_panel_COL', {
+  const panel = BABYLON.MeshBuilder.CreateBox('door_panel_body', {
     width: DW, height: DH, depth: 0.06
   }, scene);
   panel.material = MAT.wood;
@@ -1022,7 +1311,7 @@ function createChest(pos, name){
   const CW = 0.7, CH = 0.4, CD = 0.45;
 
   // ── BASE (static, collision) ──
-  const base = BABYLON.MeshBuilder.CreateBox('chest_base_COL', {
+  const base = BABYLON.MeshBuilder.CreateBox('chest_base_body', {
     width: CW, height: CH, depth: CD
   }, scene);
   base.material = MAT.woodDark;
@@ -1399,6 +1688,99 @@ function buildFort(pos){
   const ceil = BABYLON.MeshBuilder.CreateBox('fCeil', {width:FW-W*2,height:0.1,depth:FD-W*2}, scene);
   ceil.material = MAT.stoneDark; ceil.position.y = WH-0.05; ceil.parent = g;
 
+  // --- FORT ART PASS (Pack 2) ---
+
+  // Corner buttresses (tapered stone supports)
+  const corners = [[-FW/2, -FD/2], [FW/2, -FD/2], [-FW/2, FD/2], [FW/2, FD/2]];
+  corners.forEach(([cx, cz], i) => {
+    const butt = BABYLON.MeshBuilder.CreateBox('buttress_VIS_'+i, {
+      width: 0.6, height: WH * 0.8, depth: 0.6
+    }, scene);
+    butt.material = MAT.stoneDark;
+    butt.position.set(cx, WH * 0.4, cz);
+    butt.receiveShadows = true;
+    shadowGen.addShadowCaster(butt);
+    butt.checkCollisions = false;
+    butt.parent = g;
+    // Tapered top
+    const buttTop = BABYLON.MeshBuilder.CreateBox('buttTop_VIS_'+i, {
+      width: 0.45, height: WH * 0.2, depth: 0.45
+    }, scene);
+    buttTop.material = MAT.stoneDark;
+    buttTop.position.set(cx, WH * 0.8 + WH * 0.1, cz);
+    buttTop.checkCollisions = false;
+    buttTop.parent = g;
+  });
+
+  // Arrow slits (narrow vertical openings on side walls)
+  for(const side of [-1, 1]){
+    for(let az = -1; az <= 1; az += 2){
+      const slit = BABYLON.MeshBuilder.CreateBox('arrowSlit_VIS', {
+        width: W + 0.06, height: 0.8, depth: 0.08
+      }, scene);
+      slit.material = MAT.stoneDark;
+      slit.position.set(side * (FW/2 - W/2), WH * 0.65, az * 1.2);
+      slit.checkCollisions = false;
+      slit.parent = g;
+      // Cross-shaped detail
+      const cross = BABYLON.MeshBuilder.CreateBox('slitCross_VIS', {
+        width: W + 0.06, height: 0.06, depth: 0.25
+      }, scene);
+      cross.material = MAT.stoneDark;
+      cross.position.set(side * (FW/2 - W/2), WH * 0.65, az * 1.2);
+      cross.checkCollisions = false;
+      cross.parent = g;
+    }
+  }
+
+  // Gate arch (rounded arch over doorway)
+  const archSegments = 7;
+  for(let a = 0; a < archSegments; a++){
+    const angle = (Math.PI / archSegments) * a + Math.PI / archSegments / 2;
+    const ar = dw / 2 + 0.1;
+    const ax = Math.cos(angle) * ar;
+    const ay = dh - 0.2 + Math.sin(angle) * ar * 0.4;
+    const stone = BABYLON.MeshBuilder.CreateBox('arch_VIS_'+a, {
+      width: 0.2, height: 0.15, depth: W + 0.06
+    }, scene);
+    stone.material = MAT.stoneFound;
+    stone.position.set(ax, ay, FD/2 - W/2);
+    stone.rotation.z = angle - Math.PI/2;
+    stone.checkCollisions = false;
+    stone.parent = g;
+  }
+  // Keystone
+  const keystone = BABYLON.MeshBuilder.CreateBox('keystone_VIS', {
+    width: 0.25, height: 0.2, depth: W + 0.08
+  }, scene);
+  keystone.material = MAT.stoneFoundDark;
+  keystone.position.set(0, dh + 0.15, FD/2 - W/2);
+  keystone.checkCollisions = false;
+  keystone.parent = g;
+
+  // Weathered parapet walkway edge (stone lip around roof)
+  for(const fz of [-1, 1]){
+    const parapet = BABYLON.MeshBuilder.CreateBox('parapet_VIS', {
+      width: FW + 0.5, height: 0.15, depth: 0.2
+    }, scene);
+    parapet.material = MAT.stone;
+    parapet.position.set(0, WH + 0.07, fz * (FD/2 + 0.1));
+    parapet.checkCollisions = false;
+    parapet.parent = g;
+  }
+  for(const fx of [-1, 1]){
+    const parapet = BABYLON.MeshBuilder.CreateBox('parapet_VIS', {
+      width: 0.2, height: 0.15, depth: FD + 0.5
+    }, scene);
+    parapet.material = MAT.stone;
+    parapet.position.set(fx * (FW/2 + 0.1), WH + 0.07, 0);
+    parapet.checkCollisions = false;
+    parapet.parent = g;
+  }
+
+  // Fort foundation
+  addFoundation(g, 0, -0.15, 0, FW + 0.5, FD + 0.5, 0.5);
+
   return g;
 }
 
@@ -1456,6 +1838,49 @@ function buildWarehouse(pos){
     trim.material = MAT.wood; trim.position.set(i*1.5, WH/2, FD/2-W/2+0.02);
     trim.parent = g;
   }
+
+  // --- WAREHOUSE ART PASS (Pack 2) ---
+  // Corner posts (heavy timber)
+  const whCorners = [[-FW/2, -FD/2], [FW/2, -FD/2], [-FW/2, FD/2], [FW/2, FD/2]];
+  whCorners.forEach(([cx, cz], i) => {
+    const post = BABYLON.MeshBuilder.CreateBox('whPost_VIS_'+i, {
+      width: 0.15, height: WH + 0.2, depth: 0.15
+    }, scene);
+    post.material = MAT.timber;
+    post.position.set(cx, WH/2, cz);
+    post.receiveShadows = true;
+    shadowGen.addShadowCaster(post);
+    post.checkCollisions = false;
+    post.parent = g;
+  });
+
+  // Horizontal beam across top of front wall (lintel beam)
+  const whTopBeam = BABYLON.MeshBuilder.CreateBox('whTopBeam_VIS', {
+    width: FW + 0.2, height: 0.1, depth: 0.12
+  }, scene);
+  whTopBeam.material = MAT.timber;
+  whTopBeam.position.set(0, WH, FD/2);
+  whTopBeam.checkCollisions = false;
+  whTopBeam.parent = g;
+
+  // Loading hook/pulley above door
+  const hook = BABYLON.MeshBuilder.CreateBox('whHook_VIS', {
+    width: 0.1, height: 0.6, depth: 0.1
+  }, scene);
+  hook.material = MAT.metal;
+  hook.position.set(0, WH + 0.6, FD/2 + 0.3);
+  hook.checkCollisions = false;
+  hook.parent = g;
+  const hookArm = BABYLON.MeshBuilder.CreateBox('whHookArm_VIS', {
+    width: 0.08, height: 0.08, depth: 0.5
+  }, scene);
+  hookArm.material = MAT.timber;
+  hookArm.position.set(0, WH + 0.35, FD/2 + 0.25);
+  hookArm.checkCollisions = false;
+  hookArm.parent = g;
+
+  // Foundation stones
+  addFoundation(g, 0, -0.1, 0, FW + 0.15, FD + 0.15, 0.3);
 
   return g;
 }
@@ -2325,7 +2750,7 @@ camera.inputs.removeByType('FreeCameraKeyboardMoveInput');
 camera.ellipsoid = new BABYLON.Vector3(0.4, 0.9, 0.4);
 camera.ellipsoidOffset = new BABYLON.Vector3(0, 0.9, 0);
 camera.checkCollisions = true;
-camera.applyGravity = true;
+camera.applyGravity = false; // gravity handled manually in updatePlayerMovement for jump support
 
 canvas.addEventListener('click', () => {
   if(!engine.isPointerLock) canvas.requestPointerLock();
@@ -2337,13 +2762,22 @@ const player = {
   isSprinting: false,
   height: 1.75,
   interactRange: 3.5,
-  keys: {}
+  keys: {},
+  jumpVelocity: 0,
+  isGrounded: true,
+  jumpStrength: 5.5,
+  gravity: -14
 };
 
 window.addEventListener('keydown', e => {
   player.keys[e.code] = true;
   if(e.code === 'KeyE') handleInteract();
   if(e.code === 'ShiftLeft') player.isSprinting = true;
+  if(e.code === 'Space' && player.isGrounded){
+    player.jumpVelocity = player.jumpStrength;
+    player.isGrounded = false;
+    e.preventDefault();
+  }
   if(e.code === 'Tab'){ e.preventDefault(); toggleInventory(); }
 });
 window.addEventListener('keyup', e => {
@@ -2365,7 +2799,21 @@ function updatePlayerMovement(dt){
   if(player.keys['KeyD']) move.addInPlace(right.scale(speed));
 
   if(move.length() > speed) move = move.normalize().scale(speed);
-  camera.position.addInPlace(move);
+
+  // Vertical: jumping + gravity
+  player.jumpVelocity += player.gravity * dt;
+  move.y += player.jumpVelocity * dt;
+
+  // Apply movement with collision
+  const yBefore = camera.position.y;
+  camera._collideWithWorld(move);
+  const yAfter = camera.position.y;
+
+  // Detect ground contact: if vertical movement was clamped (didn't fall as much as expected)
+  if(player.jumpVelocity <= 0 && Math.abs(yAfter - (yBefore + move.y)) > 0.01){
+    player.jumpVelocity = 0;
+    player.isGrounded = true;
+  }
 }
 
 // ============================================================
@@ -2528,6 +2976,45 @@ const hudEl = document.getElementById('hud');
 const debugEl = document.getElementById('debug');
 let debugMessages = [];
 let showDebug = true;
+let showCollisionDebug = false;
+const collisionDebugMat = new BABYLON.StandardMaterial('collisionDebugMat', scene);
+collisionDebugMat.wireframe = true;
+collisionDebugMat.emissiveColor = new BABYLON.Color3(0, 1, 0.3);
+collisionDebugMat.disableLighting = true;
+collisionDebugMat.alpha = 0.6;
+
+function toggleCollisionDebug(){
+  showCollisionDebug = !showCollisionDebug;
+  const saved = new Map();
+  scene.meshes.forEach(m => {
+    const name = (m.name || '').toUpperCase();
+    const isCOL = name.includes('_COL');
+    const hasCollision = m.checkCollisions;
+    if(!isCOL && !hasCollision) return;
+
+    if(showCollisionDebug){
+      // Show collision meshes as green wireframes
+      if(!m.metadata) m.metadata = {};
+      m.metadata._savedVis = m.isVisible;
+      m.metadata._savedMat = m.material;
+      m.metadata._savedAlpha = m.visibility;
+      m.isVisible = true;
+      m.material = collisionDebugMat;
+      m.visibility = 0.6;
+    } else {
+      // Restore original state
+      if(m.metadata && m.metadata._savedVis !== undefined){
+        m.isVisible = m.metadata._savedVis;
+        m.material = m.metadata._savedMat;
+        m.visibility = m.metadata._savedAlpha !== undefined ? m.metadata._savedAlpha : 1;
+        delete m.metadata._savedVis;
+        delete m.metadata._savedMat;
+        delete m.metadata._savedAlpha;
+      }
+    }
+  });
+  debugLog('Collision debug: ' + (showCollisionDebug ? 'ON — green wireframes show collision meshes' : 'OFF'));
+}
 
 function debugLog(msg){
   debugMessages.unshift(msg);
@@ -2541,7 +3028,7 @@ function updateHUD(){
   hudEl.innerHTML =
     `<div style="font-size:16px;margin-bottom:4px;color:#c8a44e">SKULL & SAIL</div>` +
     `<div>Location: ${loc}</div>` +
-    `<div style="margin-top:8px;font-size:11px;opacity:0.5">WASD — Move | MOUSE — Look | E — Interact | SHIFT — Sprint | TAB — Inventory | F3 — Debug</div>`;
+    `<div style="margin-top:8px;font-size:11px;opacity:0.5">WASD — Move | SPACE — Jump | MOUSE — Look | E — Interact | SHIFT — Sprint | TAB — Inventory | F3 — Debug | F4 — Collision View</div>`;
 }
 
 function isInsideBuilding(pos){
@@ -2622,6 +3109,7 @@ function updateDebug(){
   txt += `interactables: ${interactables.length}\n`;
   txt += `meshes: ${scene.meshes.length}\n`;
   txt += `fps: ${engine.getFps().toFixed(0)}\n`;
+  txt += `collision view: ${showCollisionDebug ? 'ON (F4)' : 'off (F4)'}\n`;
 
   // Asset source stats + convention compliance
   if(window.AssetLibrary && window.AssetLibrary.getSources){
@@ -2673,6 +3161,7 @@ function updateDebug(){
 
 window.addEventListener('keydown', e => {
   if(e.code === 'F3'){ showDebug = !showDebug; e.preventDefault(); }
+  if(e.code === 'F4'){ toggleCollisionDebug(); e.preventDefault(); }
 });
 
 // ============================================================
