@@ -19,9 +19,9 @@ canvas{display:block;}
 #wind-info{position:absolute;top:40px;left:50%;transform:translateX(-50%);color:#a89060;font-size:10px;letter-spacing:1px;text-shadow:1px 1px 3px #000;}
 #log{position:absolute;bottom:20px;left:20px;max-width:400px;color:#c8b888;font-size:12px;font-style:italic;text-shadow:1px 1px 3px #000;line-height:1.7;}
 #controls-info{position:absolute;bottom:15px;right:15px;color:rgba(232,213,163,0.35);font-size:10px;text-align:right;line-height:1.9;text-shadow:1px 1px 2px #000;}
-#minimap{position:absolute;top:15px;right:15px;width:150px;height:150px;border:1px solid rgba(232,213,163,0.2);border-radius:6px;overflow:hidden;}
-#minimap canvas{width:150px;height:150px;}
-#compass{position:absolute;top:172px;right:15px;width:150px;text-align:center;color:#a89060;font-size:10px;letter-spacing:2px;text-shadow:1px 1px 2px #000;}
+#minimap{position:absolute;top:20px;right:20px;width:220px;height:220px;border:3px solid rgba(168,144,96,0.5);border-radius:50%;overflow:hidden;box-shadow:0 8px 25px rgba(0,0,0,0.8),inset 0 0 40px rgba(0,0,0,0.9);background:rgba(8,12,18,0.7);backdrop-filter:blur(4px);display:flex;justify-content:center;align-items:center;}
+#minimap canvas{width:220px;height:220px;border-radius:50%;}
+#compass{position:absolute;top:250px;right:20px;width:220px;text-align:center;color:#ffe4a1;font-weight:bold;font-size:12px;letter-spacing:4px;text-shadow:1px 2px 5px #000;}
 #prompt-box{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#e8d5a3;font-size:16px;letter-spacing:2px;text-shadow:0 0 15px rgba(200,160,60,0.4),1px 1px 4px #000;display:none;text-align:center;pointer-events:none;transition:opacity 0.3s;}
 
 #play-btn{display:none;position:fixed;bottom:14%;left:50%;transform:translateX(-50%);z-index:9999;font-family:'Georgia',serif;font-size:24px;font-weight:bold;color:#fdeb82;background:linear-gradient(to bottom,rgba(25,15,5,0.7),rgba(10,5,2,0.8));border:2px solid #a89060;padding:18px 90px;cursor:pointer;letter-spacing:10px;transition:all 0.4s cubic-bezier(0.25,0.8,0.25,1);pointer-events:all;border-radius:4px;text-shadow:0 4px 10px rgba(0,0,0,0.9);box-shadow:0 6px 30px rgba(0,0,0,0.6),inset 0 0 15px rgba(168,144,96,0.2);backdrop-filter:blur(6px);animation:playPulse 2.5s infinite alternate;}
@@ -108,7 +108,7 @@ canvas{display:block;}
   <div id="cannon-bar"><div id="cannon-fill"></div></div>
   <div id="wind-info"></div>
   <div id="hud"></div>
-  <div id="minimap"><canvas id="mm" width="150" height="150"></canvas></div>
+  <div id="minimap"><canvas id="mm" width="220" height="220"></canvas></div>
   <div id="compass"></div>
   <div id="sail-indicator"></div>
   <div id="enemy-hud"></div>
@@ -118,7 +118,6 @@ canvas{display:block;}
     MOUSE — Orbit Camera<br>
     SCROLL — Zoom<br>
     R — Raise / Lower Sails<br>
-    F — Board Ship / Disembark<br>
     SPACE — Fire / Jump<br>
     E — Loot / Interact
   </div>
@@ -136,7 +135,6 @@ canvas{display:block;}
     <div class="settings-row"><label>Right</label><button class="key-bind" data-action="right">D</button></div>
     <div class="settings-row"><label>Fire / Jump</label><button class="key-bind" data-action="fire"> </button></div>
     <div class="settings-row"><label>Interact</label><button class="key-bind" data-action="interact">E</button></div>
-    <div class="settings-row"><label>Board Ship</label><button class="key-bind" data-action="board">F</button></div>
     <div class="settings-row"><label>Sails</label><button class="key-bind" data-action="sails">R</button></div>
     <button id="settings-close">DONE</button>
   </div>

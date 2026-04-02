@@ -8,42 +8,41 @@ function _init(){
   var el=document.getElementById('loading-container');
   if(!el)return false;
   
-  // Create Single HTML5 Video Element with Intelligent EOF-Bypass Looping
-  var vid = document.createElement('video');
-  vid.id = 'loading-video';
-  vid.src = 'loading_bg.mp4';
-  vid.autoplay = true;
-  vid.muted = true;
-  vid.playsInline = true;
-  // We strictly disable native 'loop' to prevent the hardware decoder from dumping memory at EOF.
-  vid.loop = false;
+  // Create Dual HTML5 Video Elements to force a buttery-smooth crossfade loop
+  var v1 = document.createElement('video');
+  var v2 = document.createElement('video');
+  v1.id = 'loading-video-1'; v2.id = 'loading-video-2';
+  v1.src = 'loading_bg.mp4'; v2.src = 'loading_bg.mp4';
+  v1.muted = true; v2.muted = true;
+  v1.playsInline = true; v2.playsInline = true;
+  v1.loop = false; v2.loop = false;
   
-  // Style: scale(1.05) cleanly cuts minor edges
-  vid.style.position = 'absolute';
-  vid.style.top = '0';
-  vid.style.left = '0';
-  vid.style.width = '100%';
-  vid.style.height = '100%';
-  vid.style.objectFit = 'cover';
-  vid.style.zIndex = '-1'; 
-  vid.style.transform = 'scale(1.05)';
-  vid.style.transformOrigin = 'center';
+  // Style: generous 1.2s crossfade transition completely hides all jumps
+  var vStyle = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:-1;transform:scale(1.05);transform-origin:center;transition:opacity 1.2s ease-in-out;pointer-events:none;';
+  v1.style.cssText = vStyle + 'opacity:1;';
+  v2.style.cssText = vStyle + 'opacity:0;';
   
-  el.insertBefore(vid, el.firstChild);
+  el.insertBefore(v2, el.firstChild);
+  el.insertBefore(v1, el.firstChild);
   
-  // Intelligent Time-Jump Looper
-  // This completely eliminates:
-  // 1. Browser Hardware Decoder freeze (by skipping the EOF dump)
-  // 2. CapCut's accidental 1-frame black exports at the end of files
-  vid.addEventListener('timeupdate', function() {
-      // Trigger the jump 0.15 seconds before the file actually ends 
-      if (vid.duration && vid.currentTime >= vid.duration - 0.15) {
-          // Jump to 0.05s (skips the very first frame to avoid a double-frame stitch hitch)
-          vid.currentTime = 0.05;
-          vid.play();
+  v1.play();
+  window._curVid = v1;
+  window._nxtVid = v2;
+  
+  // Crossfade trigger 1.2s before end of video
+  setInterval(function() {
+      if(window._curVid.duration && window._curVid.currentTime >= window._curVid.duration - 1.2) {
+          window._nxtVid.currentTime = 0;
+          window._nxtVid.play();
+          window._nxtVid.style.opacity = '1';
+          window._curVid.style.opacity = '0'; 
+          
+          var temp = window._curVid;
+          window._curVid = window._nxtVid;
+          window._nxtVid = temp;
       }
-  });
-
+  }, 50);
+  
   _run=true;
   _anim();
   return true;
@@ -82,8 +81,10 @@ window.LoadingScreen={
                   el.style.display='none';
                   _run=false;
                   if(_reqFrame) cancelAnimationFrame(_reqFrame);
-                  var vid=document.getElementById('loading-video');
-                  if(vid){ vid.pause(); vid.removeAttribute('src'); vid.load(); vid.remove(); }
+                  var v1=document.getElementById('loading-video-1');
+                  if(v1){ v1.pause(); v1.removeAttribute('src'); v1.load(); v1.remove(); }
+                  var v2=document.getElementById('loading-video-2');
+                  if(v2){ v2.pause(); v2.removeAttribute('src'); v2.load(); v2.remove(); }
               },1300);
           }
       },400);

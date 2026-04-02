@@ -3054,23 +3054,22 @@ function update(dt){
   const mc=document.getElementById('mm').getContext('2d');
   const mmT = window.NavPresentation ? window.NavPresentation.tuning.minimap : { rangeShip:2000, rangeFoot:600, gridStepShip:500, gridStepFoot:150, gridAlpha:0.12, borderAlpha:0.35 };
   const mmRange = P.onShip ? mmT.rangeShip : mmT.rangeFoot;
-  const mmScale = 75 / mmRange;
-  mc.fillStyle='#0a1825';mc.fillRect(0,0,150,150);
-  mc.strokeStyle='rgba(232,213,163,'+(mmT.borderAlpha!=null?mmT.borderAlpha:0.35)+')';mc.lineWidth=1;mc.strokeRect(0.5,0.5,149,149);
+  const mmScale = 110 / mmRange;
+  mc.fillStyle='rgba(10,24,37,0.7)';mc.fillRect(0,0,220,220);
   const ga = mmT.gridAlpha != null ? mmT.gridAlpha : 0.12;
-  mc.strokeStyle='rgba(100,150,200,'+ga+')';mc.lineWidth=0.5;
+  mc.strokeStyle='rgba(100,150,200,'+ga+')';mc.lineWidth=0.7;
   const gridStep = P.onShip ? mmT.gridStepShip : mmT.gridStepFoot;
   const ox = ((P.x % gridStep) + gridStep) % gridStep;
   const oz = ((P.z % gridStep) + gridStep) % gridStep;
   for(let gx = -mmRange - gridStep; gx <= mmRange + gridStep; gx += gridStep){
-    const sx = 75 + (gx - ox) * mmScale;
-    if(sx < -2 || sx > 152) continue;
-    mc.beginPath();mc.moveTo(sx, 0);mc.lineTo(sx, 150);mc.stroke();
+    const sx = 110 + (gx - ox) * mmScale;
+    if(sx < -2 || sx > 222) continue;
+    mc.beginPath();mc.moveTo(sx, 0);mc.lineTo(sx, 220);mc.stroke();
   }
   for(let gz = -mmRange - gridStep; gz <= mmRange + gridStep; gz += gridStep){
-    const sy = 75 + (gz - oz) * mmScale;
-    if(sy < -2 || sy > 152) continue;
-    mc.beginPath();mc.moveTo(0, sy);mc.lineTo(150, sy);mc.stroke();
+    const sy = 110 + (gz - oz) * mmScale;
+    if(sy < -2 || sy > 222) continue;
+    mc.beginPath();mc.moveTo(0, sy);mc.lineTo(220, sy);mc.stroke();
   }
   const sortedIslands = islands.slice().sort((a,b)=>{
     const pa = window.NavPresentation ? window.NavPresentation.islandPriority(a) : 0;
@@ -3080,41 +3079,49 @@ function update(dt){
   for(let isl of sortedIslands){
     let dx = wrapDelta(isl.x - P.x), dz = wrapDelta(isl.y - P.z);
     if(Math.abs(dx) > mmRange || Math.abs(dz) > mmRange) continue;
-    drawMinimapIslandSymbol(mc, 75 + dx * mmScale, 75 + dz * mmScale, isl, mmScale);
+    drawMinimapIslandSymbol(mc, 110 + dx * mmScale, 110 + dz * mmScale, isl, mmScale);
   }
   for(let d of disasters){
     let dx = wrapDelta(d.x - P.x), dz = wrapDelta(d.z - P.z);
     if(Math.abs(dx) > mmRange || Math.abs(dz) > mmRange) continue;
-    drawMinimapDisaster(mc, 75 + dx * mmScale, 75 + dz * mmScale, d, mmScale, time);
+    drawMinimapDisaster(mc, 110 + dx * mmScale, 110 + dz * mmScale, d, mmScale, time);
   }
   for(let lc of lootCrates){
     let dx = wrapDelta(lc.x - P.x), dz = wrapDelta(lc.z - P.z);
     if(Math.abs(dx) > mmRange || Math.abs(dz) > mmRange) continue;
-    drawMinimapLootCrate(mc, 75 + dx * mmScale, 75 + dz * mmScale);
+    drawMinimapLootCrate(mc, 110 + dx * mmScale, 110 + dz * mmScale);
   }
   for(let e of enemies){
     if(e.sinking) continue;
     let dx = wrapDelta(e.x - P.x), dz = wrapDelta(e.z - P.z);
     if(Math.abs(dx) > mmRange || Math.abs(dz) > mmRange) continue;
-    drawMinimapEnemyShip(mc, 75 + dx * mmScale, 75 + dz * mmScale, e, mmScale);
+    drawMinimapEnemyShip(mc, 110 + dx * mmScale, 110 + dz * mmScale, e, mmScale);
   }
-  mc.fillStyle=P.onShip?'#ffe4a1':'#88ff88';mc.beginPath();mc.arc(75, 75, 3, 0, Math.PI*2);mc.fill();
+  
+  // High-Fidelity Player Marker
+  mc.fillStyle=P.onShip?'#ffe4a1':'#88ff88';mc.beginPath();mc.arc(110, 110, 4, 0, Math.PI*2);mc.fill();
   if(P.onShip){
-    mc.save();mc.translate(75, 75);mc.rotate(P.angle);
-    mc.fillStyle='#f5e6c8';
+    mc.save();mc.translate(110, 110);mc.rotate(P.angle);
+    mc.scale(1.6, 1.6); // Blow up the size of the ship icon
+    mc.fillStyle='#fdeb82';
     mc.beginPath();
-    mc.moveTo(9, 0);
-    mc.quadraticCurveTo(2, 2.2, -7, 1.2);
-    mc.quadraticCurveTo(-8, 0, -7, -1.2);
-    mc.quadraticCurveTo(2, -2.2, 9, 0);
+    mc.moveTo(10, 0);
+    mc.quadraticCurveTo(2, 2.5, -8, 1.5);
+    mc.quadraticCurveTo(-9, 0, -8, -1.5);
+    mc.quadraticCurveTo(2, -2.5, 10, 0);
     mc.closePath();
     mc.fill();
-    mc.strokeStyle='rgba(40,30,20,0.5)';mc.lineWidth=0.6;mc.stroke();
-    mc.strokeStyle='rgba(255,255,255,0.35)';mc.lineWidth=0.45;
-    mc.beginPath();mc.moveTo(2, -1);mc.lineTo(-3, -4);mc.lineTo(-1, -1);mc.closePath();mc.stroke();
+    mc.strokeStyle='rgba(20,10,0,0.8)';mc.lineWidth=0.8;mc.stroke();
+    mc.strokeStyle='rgba(255,255,255,0.7)';mc.lineWidth=0.6;
+    mc.beginPath();mc.moveTo(3, -1.5);mc.lineTo(-4, -5);mc.lineTo(-1.5, -1.5);mc.closePath();mc.stroke();
     mc.restore();
   }
-  mc.strokeStyle='rgba(100,200,255,0.4)';mc.lineWidth=1.5;mc.save();mc.translate(130,130);mc.rotate(wind.angle);mc.beginPath();mc.moveTo(-8,0);mc.lineTo(8,0);mc.moveTo(4,-3);mc.lineTo(8,0);mc.lineTo(4,3);mc.stroke();mc.restore();
+  
+  // Prominent Wind Compass Indicator
+  mc.strokeStyle='rgba(150,220,255,0.8)';mc.lineWidth=2.5;
+  mc.save();mc.translate(200, 200);mc.rotate(wind.angle);
+  mc.beginPath();mc.moveTo(-10,0);mc.lineTo(10,0);mc.moveTo(4,-4);mc.lineTo(10,0);mc.lineTo(4,4);mc.stroke();
+  mc.restore();
 
   // Island labels
   for(let isl of islands){let d=Math.hypot(wrapDelta(P.x-isl.x),wrapDelta(P.z-isl.y));if(d<isl.r+50&&!P.onShip){
