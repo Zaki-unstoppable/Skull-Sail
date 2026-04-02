@@ -11,7 +11,7 @@ function _init(){
   // Create Single High-Performance HTML5 Video Element for Boomerang Loop
   var vid = document.createElement('video');
   vid.id = 'loading-video';
-  vid.src = 'loading_bg_boomerang.mp4';
+  vid.src = 'loading_bg.mp4';
   vid.autoplay = true;
   vid.muted = true;
   vid.loop = true;
