@@ -2459,50 +2459,50 @@ function drawMinimapIslandSymbol(mc, cx, cy, isl, mmScale){
   mc.lineWidth = 1.5;
   mc.stroke();
 
-  // Add specific marks based on features (e.g. treasure)
-  if(isl.hasTreasure && !isl.treasureCollected){
-    mc.fillStyle = 'rgba(230,50,50,0.9)';
-    mc.font = `bold ${Math.round(rPix*0.8)}px sans-serif`;
+  // Draw clean, minimalist white-on-black iconography
+  let icon = '';
+  if(isl.hasTreasure && !isl.treasureCollected) icon = 'X';
+  else if(isl.type === 'fort') icon = '♜';
+  else if(isl.type === 'village') icon = '⌂';
+  else if(isl.hasShop) icon = '⚓';
+  else if(isl.type === 'ruins') icon = '🏛';
+  
+  if(icon) {
+    mc.font = `bold ${Math.round(rPix*1.1)}px sans-serif`;
     mc.textAlign = 'center';
     mc.textBaseline = 'middle';
-    mc.fillText('X', cx, cy);
+    mc.lineWidth = 2; // thick stroke for high contrast visibility
+    mc.strokeStyle = 'rgba(0,0,0,0.8)';
+    mc.strokeText(icon, cx, cy);
+    mc.fillStyle = (icon === 'X') ? '#ff4444' : '#ffffff';
+    mc.fillText(icon, cx, cy);
   }
 }
 
 function drawMinimapEnemyShip(mc, cx, cy, e, mmScale){
-  const len = [5, 6.8, 8.5][e.tier] || 6;
-  const wid = [2, 2.6, 3.2][e.tier] || 2.5;
-  const hull = ['#c2783a','#a02828','#501010'][e.tier];
+  // Enlarged enemy icons so they are easily seen
+  const len = [7, 9, 11][e.tier] || 9;
+  const wid = [4, 5, 6][e.tier] || 5;
+  
   mc.save();
   mc.translate(cx, cy);
   mc.rotate(e.angle);
+  
+  // Draw a sleek, geometric aggressive boat arrow
   mc.beginPath();
-  mc.moveTo(len * 0.55, 0);
-  mc.quadraticCurveTo(len * 0.2, wid * 0.55, -len * 0.48, wid * 0.42);
-  mc.quadraticCurveTo(-len * 0.55, 0, -len * 0.48, -wid * 0.42);
-  mc.quadraticCurveTo(len * 0.2, -wid * 0.55, len * 0.55, 0);
+  mc.moveTo(len, 0); // Bow tip
+  mc.lineTo(-len*0.7, wid); // Rear right
+  mc.lineTo(-len*0.3, 0); // Inner notch
+  mc.lineTo(-len*0.7, -wid); // Rear left
   mc.closePath();
-  mc.fillStyle = hull;
+  
+  // Bright red fill with extremely visible black outline
+  mc.fillStyle = 'rgba(230, 40, 40, 0.9)';
   mc.fill();
-  mc.strokeStyle = 'rgba(0,0,0,0.45)';
-  mc.lineWidth = 0.65;
+  mc.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+  mc.lineWidth = 1.5;
   mc.stroke();
-  mc.strokeStyle = 'rgba(240,240,255,0.5)';
-  mc.lineWidth = 0.45;
-  mc.beginPath();
-  mc.moveTo(len * 0.05, -wid * 0.35);
-  mc.lineTo(-len * 0.25, -wid * 0.35);
-  mc.stroke();
-  mc.strokeStyle = '#dde8f0';
-  mc.lineWidth = 0.5;
-  mc.beginPath();
-  mc.moveTo(-len * 0.05, -wid * 0.15);
-  mc.lineTo(-len * 0.05, -wid * (1.6 + e.tier * 0.25));
-  mc.lineTo(len * 0.25, -wid * 0.85);
-  mc.closePath();
-  mc.fillStyle = 'rgba(255,255,255,0.25)';
-  mc.fill();
-  mc.stroke();
+  
   mc.restore();
 }
 
@@ -3055,16 +3055,25 @@ function update(dt){
     drawMinimapEnemyShip(mc, 110 + dx * mmScale, 110 + dz * mmScale, e, mmScale);
   }
   
-  // Simplified Emoji Player Marker
+  // Crisp Minimalist Player Marker (White Arrow w/ Black Border)
   mc.fillStyle=P.onShip?'rgba(0,0,0,0)':'#88ff88';mc.beginPath();mc.arc(110, 110, 5, 0, Math.PI*2);mc.fill();
   if(P.onShip){
     mc.save();mc.translate(110, 110);
-    // Add 90 degrees offset since the emoji points UP natively but our pure Angle 0 is moving RIGHT
-    mc.rotate(P.angle + Math.PI/2);
-    mc.textAlign = 'center';
-    mc.textBaseline = 'middle';
-    mc.font = '22px Arial';
-    mc.fillText('🚢', 0, 0);
+    mc.rotate(P.angle);
+    
+    // Draw a sharp cursor arrowhead
+    mc.beginPath();
+    mc.moveTo(11, 0);
+    mc.lineTo(-7, 7);
+    mc.lineTo(-3, 0);
+    mc.lineTo(-7, -7);
+    mc.closePath();
+    
+    mc.fillStyle = '#ffffff';
+    mc.fill();
+    mc.strokeStyle = '#000000';
+    mc.lineWidth = 2.0;
+    mc.stroke();
     mc.restore();
   }
   
