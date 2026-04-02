@@ -8,28 +8,39 @@ function _init(){
   var el=document.getElementById('loading-container');
   if(!el)return false;
   
-  // Create Single High-Performance HTML5 Video Element for Boomerang Loop
-  var vid = document.createElement('video');
-  vid.id = 'loading-video';
-  vid.src = 'loading_bg.mp4';
-  vid.autoplay = true;
-  vid.muted = true;
-  vid.loop = true;
-  vid.playsInline = true;
+  // Create Dual HTML5 Video Elements to bypass browser decoder lag on mp4 loops
+  var v1 = document.createElement('video');
+  var v2 = document.createElement('video');
+  v1.id = 'loading-video-1'; v2.id = 'loading-video-2';
+  v1.src = 'loading_bg.mp4'; v2.src = 'loading_bg.mp4';
+  v1.muted = true; v2.muted = true;
+  v1.playsInline = true; v2.playsInline = true;
   
-  // Style: scale(1.25) deeply crops out the baked-in black borders and watermarks
-  vid.style.position = 'absolute';
-  vid.style.top = '0';
-  vid.style.left = '0';
-  vid.style.width = '100%';
-  vid.style.height = '100%';
-  vid.style.objectFit = 'cover';
-  vid.style.zIndex = '-1'; 
-  vid.style.transform = 'scale(1.25)';
-  vid.style.transformOrigin = 'center';
-  vid.style.transition = 'opacity 0.5s';
+  // Style: scale(1.25) deeply crops out the baked-in black borders
+  var vStyle = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:-1;transform:scale(1.25);transform-origin:center;transition:opacity 0.4s ease-in-out;pointer-events:none;';
+  v1.style.cssText = vStyle + 'opacity:1;';
+  v2.style.cssText = vStyle + 'opacity:0;';
   
-  el.insertBefore(vid, el.firstChild);
+  el.insertBefore(v2, el.firstChild);
+  el.insertBefore(v1, el.firstChild);
+  
+  v1.play();
+  window._curVid = v1;
+  window._nxtVid = v2;
+  
+  // Hardware-Lag Bypass: Swap active video 0.4s before it ends to hide decoder freeze
+  setInterval(function() {
+      if(window._curVid.duration && window._curVid.currentTime >= window._curVid.duration - 0.4) {
+          window._nxtVid.currentTime = 0;
+          window._nxtVid.play();
+          window._nxtVid.style.opacity = '1';
+          window._curVid.style.opacity = '0'; 
+          
+          var temp = window._curVid;
+          window._curVid = window._nxtVid;
+          window._nxtVid = temp;
+      }
+  }, 50);
   
   _run=true;
   _anim();
@@ -69,8 +80,10 @@ window.LoadingScreen={
                   el.style.display='none';
                   _run=false;
                   if(_reqFrame) cancelAnimationFrame(_reqFrame);
-                  var vid=document.getElementById('loading-video');
-                  if(vid){ vid.pause(); vid.removeAttribute('src'); vid.load(); vid.remove(); }
+                  var v1=document.getElementById('loading-video-1');
+                  if(v1){ v1.pause(); v1.removeAttribute('src'); v1.load(); v1.remove(); }
+                  var v2=document.getElementById('loading-video-2');
+                  if(v2){ v2.pause(); v2.removeAttribute('src'); v2.load(); v2.remove(); }
               },1300);
           }
       },400);
