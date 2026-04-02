@@ -2427,8 +2427,10 @@ function lerpAngle(a,b,t){return a+angleDiff(a,b)*t;}
 
 // ============ MINIMAP CHART SYMBOLS (top-right) ============
 function drawMinimapIslandSymbol(mc, cx, cy, isl, mmScale){
-  const rPix = Math.max(2.5, isl.r * mmScale);
+  const rPix = Math.max(3.5, isl.r * mmScale);
   const sh = isl.shape;
+  
+  // Draw the island landmass
   if(sh && sh.length >= 3){
     mc.beginPath();
     for(let i = 0; i < sh.length; i++){
@@ -2442,74 +2444,38 @@ function drawMinimapIslandSymbol(mc, cx, cy, isl, mmScale){
     mc.beginPath();
     mc.ellipse(cx, cy, rPix * 0.95, rPix * 0.75, 0.15, 0, Math.PI * 2);
   }
-  const land = {
-    fort:'#7a6b52', village:'#c9a86c', tropical:'#3d6848', ruins:'#8f8f7a',
-    outpost:'#6f7a72', wild:'#2d4f38'
-  };
-  mc.fillStyle = land[isl.type] || '#3d5c45';
+  
+  // Map parchment style land
+  mc.fillStyle = 'rgba(215, 195, 150, 0.9)'; 
   mc.fill();
-  mc.strokeStyle = 'rgba(15,22,28,0.55)';
-  mc.lineWidth = 0.85;
+  mc.strokeStyle = 'rgba(120, 90, 60, 0.8)';
+  mc.lineWidth = 1.2;
   mc.stroke();
-  if(isl.type === 'fort' || isl.hasFort){
-    mc.fillStyle = 'rgba(35,32,28,0.9)';
-    const w = rPix * 0.55, h = rPix * 0.45;
-    mc.fillRect(cx - w * 0.5, cy - h * 0.5, w, h);
-    mc.strokeStyle = 'rgba(0,0,0,0.35)';
-    mc.strokeRect(cx - w * 0.5, cy - h * 0.5, w, h);
-  }
-  if(isl.type === 'village' && isl.hasHuts){
-    mc.fillStyle = 'rgba(90,70,50,0.85)';
-    for(let k = 0; k < 3; k++){
-      const ox = (k - 1) * rPix * 0.22;
-      mc.fillRect(cx + ox - rPix * 0.08, cy + rPix * 0.15, rPix * 0.16, rPix * 0.12);
-    }
-  }
-  if(isl.type === 'tropical' || isl.type === 'wild'){
-    mc.strokeStyle = 'rgba(40,90,55,0.9)';
-    mc.lineWidth = 0.6;
-    for(let k = 0; k < 3; k++){
-      const a = 0.3 + k * 0.9;
-      mc.beginPath();
-      mc.arc(cx + Math.cos(a) * rPix * 0.35, cy + Math.sin(a) * rPix * 0.35, rPix * 0.2, a, a + 1.2);
-      mc.stroke();
-    }
-  }
-  if(isl.type === 'ruins'){
-    mc.strokeStyle = 'rgba(60,58,52,0.9)';
-    mc.lineWidth = 0.7;
-    mc.beginPath();
-    mc.moveTo(cx - rPix * 0.4, cy + rPix * 0.35);
-    mc.lineTo(cx - rPix * 0.15, cy - rPix * 0.45);
-    mc.lineTo(cx + rPix * 0.25, cy + rPix * 0.25);
-    mc.stroke();
-  }
-  if(isl.hasTower){
-    mc.fillStyle = 'rgba(55,55,62,0.95)';
-    mc.beginPath();
-    mc.moveTo(cx + rPix * 0.35, cy - rPix * 0.1);
-    mc.lineTo(cx + rPix * 0.55, cy - rPix * 0.55);
-    mc.lineTo(cx + rPix * 0.65, cy + rPix * 0.15);
-    mc.closePath();
-    mc.fill();
-  }
+  
+  // Fun Bright Green Tree Symbol (scales with island)
+  // Draw trunk
+  mc.fillStyle = '#654321'; // Dark brown
+  mc.fillRect(cx - rPix*0.06, cy, rPix*0.12, rPix*0.45);
+  // Draw leaves
+  mc.fillStyle = '#2ecc71'; // Bright, fun green
+  mc.beginPath(); 
+  mc.arc(cx, cy - rPix*0.2, rPix*0.35, 0, Math.PI*2);
+  mc.arc(cx - rPix*0.25, cy + rPix*0.05, rPix*0.28, 0, Math.PI*2);
+  mc.arc(cx + rPix*0.25, cy + rPix*0.05, rPix*0.28, 0, Math.PI*2);
+  mc.fill();
+  
+  // Clean green outline
+  mc.strokeStyle = '#27ae60';
+  mc.lineWidth = 1.0;
+  mc.stroke();
+
+  // Add specific marks based on features (e.g. treasure)
   if(isl.hasTreasure && !isl.treasureCollected){
-    mc.strokeStyle = 'rgba(232,192,72,0.95)';
-    mc.lineWidth = 1.1;
-    mc.setLineDash([2, 2]);
-    mc.beginPath();
-    mc.arc(cx, cy, rPix + 2, 0, Math.PI * 2);
-    mc.stroke();
-    mc.setLineDash([]);
-  }
-  if(isl.hasShop){
-    mc.strokeStyle = 'rgba(200,220,255,0.9)';
-    mc.lineWidth = 1;
-    const s = 2.2;
-    mc.beginPath();
-    mc.moveTo(cx - s, cy - s); mc.lineTo(cx + s, cy + s);
-    mc.moveTo(cx + s, cy - s); mc.lineTo(cx - s, cy + s);
-    mc.stroke();
+    mc.fillStyle = 'rgba(230,50,50,0.9)';
+    mc.font = `bold ${Math.round(rPix*0.8)}px sans-serif`;
+    mc.textAlign = 'center';
+    mc.textBaseline = 'middle';
+    mc.fillText('X', cx, cy + rPix*0.5);
   }
 }
 
@@ -3055,9 +3021,10 @@ function update(dt){
   const mmT = window.NavPresentation ? window.NavPresentation.tuning.minimap : { rangeShip:2000, rangeFoot:600, gridStepShip:500, gridStepFoot:150, gridAlpha:0.12, borderAlpha:0.35 };
   const mmRange = P.onShip ? mmT.rangeShip : mmT.rangeFoot;
   const mmScale = 110 / mmRange;
-  mc.fillStyle='rgba(10,24,37,0.7)';mc.fillRect(0,0,220,220);
-  const ga = mmT.gridAlpha != null ? mmT.gridAlpha : 0.12;
-  mc.strokeStyle='rgba(100,150,200,'+ga+')';mc.lineWidth=0.7;
+  // Beautiful parchment paper background map
+  mc.fillStyle='rgba(240,230,205,0.9)';mc.fillRect(0,0,220,220);
+  const ga = mmT.gridAlpha != null ? mmT.gridAlpha : 0.4;
+  mc.strokeStyle='rgba(160,130,90,'+ga+')';mc.lineWidth=1.0;
   const gridStep = P.onShip ? mmT.gridStepShip : mmT.gridStepFoot;
   const ox = ((P.x % gridStep) + gridStep) % gridStep;
   const oz = ((P.z % gridStep) + gridStep) % gridStep;
@@ -3098,29 +3065,29 @@ function update(dt){
     drawMinimapEnemyShip(mc, 110 + dx * mmScale, 110 + dz * mmScale, e, mmScale);
   }
   
-  // High-Fidelity Player Marker
-  mc.fillStyle=P.onShip?'#ffe4a1':'#88ff88';mc.beginPath();mc.arc(110, 110, 4, 0, Math.PI*2);mc.fill();
+  // Clean, Unobstructed High-Fidelity Player Marker
+  mc.fillStyle=P.onShip?'#ffe4a1':'#88ff88';mc.beginPath();mc.arc(110, 110, 5, 0, Math.PI*2);mc.fill();
   if(P.onShip){
     mc.save();mc.translate(110, 110);mc.rotate(P.angle);
-    mc.scale(1.6, 1.6); // Blow up the size of the ship icon
+    mc.scale(1.8, 1.8); // Blow it up nicely
     mc.fillStyle='#fdeb82';
     mc.beginPath();
-    mc.moveTo(10, 0);
-    mc.quadraticCurveTo(2, 2.5, -8, 1.5);
-    mc.quadraticCurveTo(-9, 0, -8, -1.5);
-    mc.quadraticCurveTo(2, -2.5, 10, 0);
+    mc.moveTo(11, 0); // Pointy tip
+    mc.quadraticCurveTo(2, 3.5, -7, 2.5); // Right hull
+    mc.quadraticCurveTo(-9, 0, -7, -2.5); // Flat stern
+    mc.quadraticCurveTo(2, -3.5, 11, 0); // Left hull
     mc.closePath();
     mc.fill();
-    mc.strokeStyle='rgba(20,10,0,0.8)';mc.lineWidth=0.8;mc.stroke();
-    mc.strokeStyle='rgba(255,255,255,0.7)';mc.lineWidth=0.6;
-    mc.beginPath();mc.moveTo(3, -1.5);mc.lineTo(-4, -5);mc.lineTo(-1.5, -1.5);mc.closePath();mc.stroke();
+    
+    // Crisp golden border, removed the messy line going through it
+    mc.strokeStyle='rgba(40,20,5,0.9)';mc.lineWidth=0.8;mc.stroke();
     mc.restore();
   }
   
   // Prominent Wind Compass Indicator
-  mc.strokeStyle='rgba(150,220,255,0.8)';mc.lineWidth=2.5;
+  mc.strokeStyle='rgba(100,180,250,0.85)';mc.lineWidth=3.0; // Thick bright blue arrow to pop against parchment
   mc.save();mc.translate(200, 200);mc.rotate(wind.angle);
-  mc.beginPath();mc.moveTo(-10,0);mc.lineTo(10,0);mc.moveTo(4,-4);mc.lineTo(10,0);mc.lineTo(4,4);mc.stroke();
+  mc.beginPath();mc.moveTo(-10,0);mc.lineTo(12,0);mc.moveTo(6,-5);mc.lineTo(12,0);mc.lineTo(6,5);mc.stroke();
   mc.restore();
 
   // Island labels
