@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Asset Proxy Server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "port": 3001
+    },
+    {
+      "name": "Three.js Game (pirate3d)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "pirate3d", "-l", "5500"],
+      "port": 5500
+    },
+    {
+      "name": "Babylon.js Game (pirate3d-babylon)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "pirate3d-babylon", "-l", "8000"],
+      "port": 8000
+    }
+  ]
+}

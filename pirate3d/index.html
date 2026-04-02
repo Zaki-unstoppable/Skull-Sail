@@ -68,6 +68,18 @@ canvas{display:block;}
 #load-bar-fill{height:100%;background:linear-gradient(90deg,#a89060,#e8d5a3);border-radius:2px;width:0%;transition:width .3s;}
 #load-pct{position:absolute;bottom:calc(12% + 14px);color:#c8a84e;font-size:12px;letter-spacing:2px;text-shadow:0 1px 4px rgba(0,0,0,0.6);}
 #load-msg{position:absolute;bottom:calc(12% - 22px);color:#a89060;font-size:11px;letter-spacing:2px;text-shadow:0 1px 4px rgba(0,0,0,0.6);opacity:0.8;}
+#nav-presentation-debug{position:fixed;left:12px;bottom:12px;width:min(420px,calc(100vw - 24px));max-height:min(70vh,520px);overflow:auto;z-index:5000;
+  background:rgba(8,10,14,0.92);border:1px solid rgba(232,213,163,0.25);border-radius:8px;padding:10px 12px;font-family:'Segoe UI',system-ui,sans-serif;font-size:11px;color:#c8d0dc;
+  pointer-events:all;box-shadow:0 8px 32px rgba(0,0,0,0.5);}
+#nav-presentation-debug h3{margin:0 0 8px 0;font-size:12px;letter-spacing:2px;color:#e8d5a3;font-weight:600;}
+#nav-presentation-debug pre{margin:0 0 10px 0;white-space:pre-wrap;word-break:break-word;line-height:1.45;font-size:10px;color:#9ab;}
+#nav-presentation-debug .nav-dbg-row{display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap;}
+#nav-presentation-debug .nav-dbg-row label{flex:1;min-width:140px;color:#a89060;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;}
+#nav-presentation-debug input[type=range]{flex:2;min-width:120px;accent-color:#a89060;}
+#nav-presentation-debug .nav-val{color:#ffe4a1;font-variant-numeric:tabular-nums;min-width:42px;text-align:right;font-size:10px;}
+#nav-presentation-debug button{margin:6px 8px 0 0;padding:6px 12px;font-size:11px;cursor:pointer;border-radius:4px;border:1px solid rgba(232,213,163,0.3);background:rgba(232,213,163,0.08);color:#e8d5a3;font-family:inherit;}
+#nav-presentation-debug button:hover{background:rgba(232,213,163,0.15);}
+#nav-presentation-debug .nav-dbg-note{font-size:9px;color:#6a7a88;margin-top:8px;line-height:1.4;}
 </style>
 </head>
 <body>
@@ -132,18 +144,61 @@ canvas{display:block;}
     <div id="sail-btn" class="mob-btn">SAIL</div>
   </div>
   <div id="asset-debug"></div>
+  <div id="nav-presentation-debug" style="display:none;" aria-label="Navigation streaming debug">
+    <h3>NAV · STREAM · LOADING <span style="opacity:.5;font-weight:400">F10</span></h3>
+    <pre data-nav-live></pre>
+    <div class="nav-dbg-row"><label>stream.near</label><input type="range" id="nav-s-near" min="200" max="2500" step="25"><span class="nav-val" id="nav-s-near-val"></span></div>
+    <div class="nav-dbg-row"><label>stream.mid</label><input type="range" id="nav-s-mid" min="400" max="4000" step="50"><span class="nav-val" id="nav-s-mid-val"></span></div>
+    <div class="nav-dbg-row"><label>stream.far</label><input type="range" id="nav-s-far" min="1000" max="6000" step="50"><span class="nav-val" id="nav-s-far-val"></span></div>
+    <div class="nav-dbg-row"><label>stream.interval (s)</label><input type="range" id="nav-s-int" min="0.05" max="1.2" step="0.05"><span class="nav-val" id="nav-s-int-val"></span></div>
+    <div class="nav-dbg-row"><label>reveal.hero</label><input type="range" id="nav-r-hero" min="400" max="4000" step="50"><span class="nav-val" id="nav-r-hero-val"></span></div>
+    <div class="nav-dbg-row"><label>reveal.structural</label><input type="range" id="nav-r-struct" min="200" max="2500" step="25"><span class="nav-val" id="nav-r-struct-val"></span></div>
+    <div class="nav-dbg-row"><label>reveal.filler</label><input type="range" id="nav-r-fill" min="50" max="1500" step="25"><span class="nav-val" id="nav-r-fill-val"></span></div>
+    <div class="nav-dbg-row"><label>reveal.hysteresis</label><input type="range" id="nav-r-hyst" min="0" max="200" step="5"><span class="nav-val" id="nav-r-hyst-val"></span></div>
+    <div class="nav-dbg-row"><label>minimap range (ship)</label><input type="range" id="nav-m-rs" min="400" max="4000" step="50"><span class="nav-val" id="nav-m-rs-val"></span></div>
+    <div class="nav-dbg-row"><label>minimap range (foot)</label><input type="range" id="nav-m-rf" min="100" max="1500" step="25"><span class="nav-val" id="nav-m-rf-val"></span></div>
+    <div class="nav-dbg-row"><label>loading PLAY delay (ms)</label><input type="range" id="nav-l-play" min="0" max="3000" step="50"><span class="nav-val" id="nav-l-play-val"></span></div>
+    <div class="nav-dbg-row"><label><input type="checkbox" id="nav-c-foot" style="width:auto;min-width:auto;"> compass on foot</label></div>
+    <button type="button" id="nav-dbg-save">Save</button>
+    <button type="button" id="nav-dbg-reset">Reset defaults</button>
+    <p class="nav-dbg-note">Live readout while sailing: streaming thresholds, reveal bands, scan timer, nearest islands with H/S/F/P cluster flags. Backtick toggles asset pipeline overlay. Values persist in localStorage.</p>
+  </div>
 </div>
 
-<!-- Three.js r128 -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Three.js r138 (local) -->
+<script src="three.min.js"></script>
 <!-- GLTFLoader for model imports -->
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="GLTFLoader.js"></script>
 
+<!-- Navigation / streaming / loading tuning (before game) -->
+<script src="nav-presentation.js"></script>
 <!-- Loading Screen -->
 <script src="loading.js"></script>
 <script>
 (function(){
+  const RESUME_KEY = 'skullSailResumeFromIsland';
+
+  const skipIntroForIslandReturn = () => {
+    try {
+      if(sessionStorage.getItem(RESUME_KEY) !== '1') return false;
+      sessionStorage.removeItem(RESUME_KEY);
+    } catch(e) { return false; }
+    const ui = document.getElementById('ui');
+    if(ui) ui.style.opacity = '1';
+    const pb = document.getElementById('play-btn');
+    if(pb) pb.style.display = 'none';
+    ['load-bar-outer','load-pct','load-msg'].forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.style.display = 'none';
+    });
+    const lc = document.getElementById('loading-container');
+    if(lc) lc.style.display = 'none';
+    return true;
+  };
+
   const startLoading = () => {
+    if(skipIntroForIslandReturn()) return;
+
     // Hide UI initially to show loading screen
     const ui = document.getElementById('ui');
     if(ui) ui.style.opacity = '0';
@@ -152,10 +207,11 @@ canvas{display:block;}
     if (window.LoadingScreen) {
       window.LoadingScreen.start();
       
-      // Slower simulation so they can see the animation
+      const L = (window.NavPresentation && window.NavPresentation.tuning.loading) || { progressMin: 0.004, progressMax: 0.006, tickMs: 100, playDelayMs: 800 };
       let p = 0;
       const iv = setInterval(() => {
-        p += 0.004 + Math.random() * 0.006;
+        const span = Math.max(1e-6, (L.progressMax - L.progressMin));
+        p += L.progressMin + Math.random() * span;
         if (p >= 1) {
           p = 1;
           clearInterval(iv);
@@ -170,10 +226,10 @@ canvas{display:block;}
             // Show the Play button
             document.getElementById('play-btn').style.display = 'block';
             if(ui) ui.style.opacity = '1';
-          }, 800);
+          }, L.playDelayMs);
         }
         window.LoadingScreen.setProgress(p);
-      }, 100);
+      }, L.tickMs);
     } else {
       // Fallback if script fails
       console.warn("LoadingScreen not ready, retrying...");
@@ -193,6 +249,9 @@ canvas{display:block;}
 <script src="config.js"></script>
 <script src="assets.js"></script>
 <script src="placement.js"></script>
+
+<!-- Procedural Grass (80k instanced blades, GLSL) -->
+<script src="grass.js"></script>
 
 <!-- Core Game -->
 <script src="game.js"></script>

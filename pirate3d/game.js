@@ -1,4 +1,5 @@
 const WORLD=6000,NUM_ISLANDS=16,NUM_ENEMIES=8;
+window.GAME_WORLD = WORLD;
 
 // Seeded PRNG (mulberry32) — deterministic world generation
 let _worldSeed = Math.floor(Math.random() * 2147483647);
@@ -26,11 +27,10 @@ function wrapPos(x, z, refX, refZ){
   };
 }
 
-// Island streaming tiers (distance from player)
-const STREAM_NEAR  = 800;   // full detail, collisions, NPC logic, all props
-const STREAM_MID   = 1800;  // reduced detail, simplified props, no heavy logic
-const STREAM_FAR   = 3500;  // silhouette only — hide props, skip updates
-// Beyond STREAM_FAR: island mesh itself is hidden (wraps to other side anyway)
+// Island streaming tiers — tuned via NavPresentation (F10)
+let STREAM_NEAR  = 800;
+let STREAM_MID   = 1800;
+let STREAM_FAR   = 3500;
 
 // Object pool config
 const POOL_WAKE_MAX = 40;
@@ -149,99 +149,125 @@ for(let i=0;i<45;i++){
   clouds.push(makeCloud((Math.random()-0.5)*WORLD*2.5,y,(Math.random()-0.5)*WORLD*2.5,s));
 }
 
-// ============ OCEAN — shader with animated caustics ============
-const oceanGeo=new THREE.PlaneGeometry(WORLD*3,WORLD*3,160,160);
+// ============ OCEAN — calm Caribbean Gerstner waves ============
+// Slow, gentle rolling swells. Time scaled down 10x so waves crawl realistically.
+// Deep-water dispersion: c = sqrt(g/k), but uTime runs at 0.1x real-time.
+// Amplitudes kept very low — gentle 0.3m–0.06m swells, not storm waves.
+const oceanGeo=new THREE.PlaneGeometry(WORLD*3,WORLD*3,200,200);
 const oceanUniforms={uTime:{value:0},uSunDir:{value:new THREE.Vector3(0.5,0.75,0.37).normalize()}};
 const oceanMat=new THREE.ShaderMaterial({
   uniforms:oceanUniforms,
   vertexShader:`
-    varying vec2 vUv;
     varying vec3 vWorldPos;
     varying vec2 vAbsCoord;
     varying vec3 vNormal;
     uniform float uTime;
+
+    vec3 gerstner(vec2 pos, vec2 dir, float A, float L, float steep, float t, inout vec3 nrm){
+      float k = 6.28318 / L;
+      float c = sqrt(9.81 / k);
+      float phase = k * dot(dir, pos) - c * t;
+      float s = sin(phase), co = cos(phase);
+      float Q = steep / (k * A + 0.001);
+      nrm += vec3(dir.x * k * A * co, Q * k * A * s, dir.y * k * A * co);
+      return vec3(Q * A * dir.x * co, A * s, Q * A * dir.y * co);
+    }
+
     void main(){
-      vUv=uv;
-      vec3 pos=position;
-      // Get true world-space position via modelMatrix (includes ocean mesh position).
-      // This is independent of player movement — waves stay fixed in world space.
-      vec4 worldPos4=modelMatrix*vec4(pos,1.0);
-      float ax=worldPos4.x;
-      float ay=worldPos4.z; // z in world = y in plane local space (rotated -90 on X)
-      vAbsCoord=vec2(ax,ay);
-      // Waves — slow ocean swell, anchored to world position
-      float st=uTime*0.15;
-      float w=sin(ax*0.012+st*3.3)*0.9+sin(ay*0.01+st*4.7)*1.1+sin((ax+ay)*0.007+st*2.3)*0.7+sin(ax*0.035+ay*0.025+st*6.7)*0.25;
-      pos.z=w;
-      // Recompute world pos with displaced z for lighting/fog
-      vWorldPos=(modelMatrix*vec4(pos,1.0)).xyz;
-      // Approximate normal from wave derivatives
-      float dx=cos(ax*0.012+st*3.3)*0.012*0.9+cos((ax+ay)*0.007+st*2.3)*0.007*0.7+cos(ax*0.035+ay*0.025+st*6.7)*0.035*0.25;
-      float dy=cos(ay*0.01+st*4.7)*0.01*1.1+cos((ax+ay)*0.007+st*2.3)*0.007*0.7+cos(ax*0.035+ay*0.025+st*6.7)*0.025*0.25;
-      vNormal=normalize(vec3(-dx,1.0,-dy));
-      gl_Position=projectionMatrix*modelViewMatrix*vec4(pos,1.0);
+      vec3 pos = position;
+      vec4 wp4 = modelMatrix * vec4(pos, 1.0);
+      vAbsCoord = vec2(wp4.x, wp4.z);
+      vec2 p = vAbsCoord;
+
+      // Slow time — 10x slower than real-time so waves crawl
+      float t = uTime * 0.1;
+
+      vec3 disp = vec3(0.0);
+      vec3 nrm = vec3(0.0);
+
+      // 3 very long, gentle swells — dominant feel of calm open ocean
+      disp += gerstner(p, normalize(vec2(0.7, 0.4)),  0.35, 180.0, 0.12, t, nrm);
+      disp += gerstner(p, normalize(vec2(0.85,-0.15)), 0.20, 120.0, 0.10, t, nrm);
+      disp += gerstner(p, normalize(vec2(-0.25, 0.8)), 0.12, 75.0,  0.08, t, nrm);
+
+      // 2 subtle detail waves — just enough surface variation to catch light
+      disp += gerstner(p, normalize(vec2(0.5, -0.5)),  0.04, 25.0, 0.06, t, nrm);
+      disp += gerstner(p, normalize(vec2(-0.6, 0.6)),  0.02, 10.0, 0.04, t, nrm);
+
+      pos.x += disp.x;
+      pos.y += disp.z;
+      pos.z  = disp.y;
+
+      vNormal = normalize(vec3(-nrm.x, 1.0 - nrm.y, -nrm.z));
+      vWorldPos = (modelMatrix * vec4(pos, 1.0)).xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
     }
   `,
   fragmentShader:`
-    varying vec2 vUv;
     varying vec3 vWorldPos;
     varying vec2 vAbsCoord;
     varying vec3 vNormal;
     uniform float uTime;
     uniform vec3 uSunDir;
 
-    // Caustic pattern function — slow shimmer so ship speed reads clearly
-    float caustic(vec2 p,float t){
-      float st=t*0.25; // slow caustic time — gentle shimmer, not racing
-      float c=0.0;
-      // Layer 1: large slow cells
-      vec2 p1=p*0.04+vec2(st*0.3,st*0.2);
-      c+=abs(sin(p1.x*1.2)*cos(p1.y*1.3)+sin(p1.y*0.8+p1.x*0.5))*0.5;
-      // Layer 2: medium cells
-      vec2 p2=p*0.08+vec2(-st*0.5,st*0.4);
-      c+=abs(sin(p2.x*1.5+p2.y)*cos(p2.y*1.1-p2.x*0.7))*0.35;
-      // Layer 3: fine detail
-      vec2 p3=p*0.15+vec2(st*0.7,-st*0.3);
-      c+=abs(sin(p3.x*2.0+p3.y*1.5)*cos(p3.y*1.8))*0.2;
-      // Bright vein lines
-      float v1=abs(sin(p.x*0.06+st*0.8+sin(p.y*0.04+st*0.3)*2.0));
-      float v2=abs(sin(p.y*0.05+st*0.6+sin(p.x*0.03+st*0.4)*2.0));
-      float veins=pow(max(0.0,1.0-min(v1,v2)*1.8),4.0);
-      c+=veins*0.6;
-      return clamp(c,0.0,1.0);
+    // Subtle normal perturbation — micro-ripples via cheap trig noise
+    vec3 microNormal(vec2 p, float t){
+      float st = t * 0.04;
+      float nx = sin(p.x * 0.5 + st * 1.1) * cos(p.y * 0.4 + st * 0.9) * 0.008
+               + sin(p.x * 1.2 + p.y * 0.8 + st * 2.3) * 0.004;
+      float nz = cos(p.x * 0.3 + st * 0.7) * sin(p.y * 0.6 + st * 1.3) * 0.008
+               + cos(p.x * 0.9 + p.y * 1.1 + st * 1.9) * 0.004;
+      return vec3(nx, 0.0, nz);
     }
 
     void main(){
-      // Base deep blue
-      vec3 deepBlue=vec3(0.02,0.22,0.55);
-      vec3 midBlue=vec3(0.08,0.42,0.72);
-      vec3 brightCyan=vec3(0.3,0.75,0.9);
-      vec3 white=vec3(0.85,0.95,1.0);
+      // Deep Caribbean blues — reference: Bora Bora / Turks & Caicos
+      vec3 deepBlue  = vec3(0.005, 0.06, 0.22);
+      vec3 midBlue   = vec3(0.015, 0.16, 0.38);
+      vec3 shallowCyan = vec3(0.04, 0.32, 0.52);
+      vec3 skyReflect  = vec3(0.42, 0.62, 0.78);
 
-      // Caustic uses absolute world coords (parallax with movement)
-      float c=caustic(vAbsCoord,uTime);
+      vec3 viewDir = normalize(cameraPosition - vWorldPos);
 
-      // Mix colors based on caustic
-      vec3 col=mix(deepBlue,midBlue,0.5+vNormal.y*0.5);
-      col=mix(col,brightCyan,c*0.6);
-      col=mix(col,white,pow(c,3.0)*0.5); // bright peaks are near-white
+      // Add micro-ripples to geometric normal
+      vec3 N = normalize(vNormal + microNormal(vAbsCoord, uTime));
 
-      // Sun specular — uses actual world pos for correct view direction
-      vec3 viewDir=normalize(cameraPosition-vWorldPos);
-      vec3 halfDir=normalize(uSunDir+viewDir);
-      float spec=pow(max(dot(vNormal,halfDir),0.0),120.0);
-      col+=vec3(1.0,0.95,0.8)*spec*0.8;
+      // Height-based deep→shallow blend
+      float h = smoothstep(-0.8, 0.6, vWorldPos.y);
+      vec3 col = mix(deepBlue, midBlue, h);
+      col = mix(col, shallowCyan, h * h * 0.4);
 
-      // Fresnel — edges more reflective/lighter
-      float fresnel=pow(1.0-max(dot(vNormal,viewDir),0.0),3.0);
-      col=mix(col,vec3(0.5,0.75,0.9),fresnel*0.4);
+      // Subsurface scattering — warm green-blue glow through wave peaks
+      float sssAngle = max(0.0, dot(viewDir, -normalize(uSunDir - N * 0.3)));
+      float sss = pow(sssAngle, 4.0) * h;
+      col += vec3(0.0, 0.06, 0.04) * sss * 1.5;
 
-      // Depth darkening far from camera — correct distance
-      float dist=length(cameraPosition-vWorldPos);
-      float fog=1.0-exp(-dist*0.0003);
-      col=mix(col,vec3(0.3,0.5,0.7),fog);
+      // Sun specular — sharp point highlight
+      vec3 halfV = normalize(uSunDir + viewDir);
+      float spec = pow(max(dot(N, halfV), 0.0), 400.0);
+      col += vec3(1.0, 0.97, 0.90) * spec * 0.6;
 
-      gl_FragColor=vec4(col,0.92);
+      // Broad sparkle layer — gives life to the surface
+      float sparkle = pow(max(dot(N, halfV), 0.0), 24.0);
+      col += vec3(0.7, 0.78, 0.85) * sparkle * 0.05;
+
+      // Schlick fresnel — physically correct F0 for water = 0.02
+      float cosTheta = max(dot(N, viewDir), 0.0);
+      float fresnel = 0.02 + 0.98 * pow(1.0 - cosTheta, 5.0);
+      col = mix(col, skyReflect, fresnel * 0.5);
+
+      // Very subtle foam only on tallest crests
+      float crest = smoothstep(0.3, 0.6, vWorldPos.y);
+      float foamPattern = sin(vAbsCoord.x * 0.15 + uTime * 0.015) * sin(vAbsCoord.y * 0.12 + uTime * 0.01);
+      foamPattern = foamPattern * 0.5 + 0.5;
+      col = mix(col, vec3(0.88, 0.93, 0.98), crest * foamPattern * 0.12);
+
+      // Atmospheric haze
+      float dist = length(cameraPosition - vWorldPos);
+      float haze = 1.0 - exp(-dist * 0.00015);
+      col = mix(col, vec3(0.50, 0.66, 0.80), haze);
+
+      gl_FragColor = vec4(col, 0.94);
     }
   `,
   transparent:true,side:THREE.DoubleSide
@@ -250,12 +276,22 @@ const ocean=new THREE.Mesh(oceanGeo,oceanMat);ocean.rotation.x=-Math.PI/2;ocean.
 
 // Deep ocean floor
 const ocean2Geo=new THREE.PlaneGeometry(WORLD*3,WORLD*3,40,40);
-const ocean2=new THREE.Mesh(ocean2Geo,new THREE.MeshBasicMaterial({color:0x0a2a4a}));
+const ocean2=new THREE.Mesh(ocean2Geo,new THREE.MeshBasicMaterial({color:0x041828}));
 ocean2.rotation.x=-Math.PI/2;ocean2.position.y=-8;scene.add(ocean2);
 
+// Buoyancy — matches vertex shader exactly (same wave params + 0.1x time)
 function getWaveH(x,z,t){
-  var st=t*0.15; // must match vertex shader slow time
-  return Math.sin(x*0.012+st*3.3)*0.9+Math.sin(z*0.01+st*4.7)*1.1+Math.sin((x+z)*0.007+st*2.3)*0.7+Math.sin(x*0.035+z*0.025+st*6.7)*0.25;
+  t *= 0.1; // must match shader slow-time
+  function gW(px,pz,dx,dz,A,L){
+    var k=6.28318/L,c=Math.sqrt(9.81/k);
+    return A*Math.sin(k*(dx*px+dz*pz)-c*t);
+  }
+  var d1=0.7,d2=0.4,l1=Math.sqrt(d1*d1+d2*d2);d1/=l1;d2/=l1;
+  var d3=0.85,d4=-0.15,l2=Math.sqrt(d3*d3+d4*d4);d3/=l2;d4/=l2;
+  var d5=-0.25,d6=0.8,l3=Math.sqrt(d5*d5+d6*d6);d5/=l3;d6/=l3;
+  var d7=0.5,d8=-0.5,l4=Math.sqrt(d7*d7+d8*d8);d7/=l4;d8/=l4;
+  var d9=-0.6,d10=0.6,l5=Math.sqrt(d9*d9+d10*d10);d9/=l5;d10/=l5;
+  return gW(x,z,d1,d2,0.35,180)+gW(x,z,d3,d4,0.20,120)+gW(x,z,d5,d6,0.12,75)+gW(x,z,d7,d8,0.04,25)+gW(x,z,d9,d10,0.02,10);
 }
 function animOcean(t){
   oceanUniforms.uTime.value=t;
@@ -920,17 +956,9 @@ function buildIsland(isl){
   // Store top height for collision
   isl.groundH=7;
 
-  // Grass tufts scattered on green area
-  const tuffMat=new THREE.MeshPhongMaterial({color:0x4a9a35,flatShading:true,side:THREE.DoubleSide});
-  for(let ti=0;ti<15+Math.floor(Math.random()*10);ti++){
-    let a=Math.random()*Math.PI*2,d=Math.random()*isl.r*0.5;
-    let tx=Math.cos(a)*d,tz=Math.sin(a)*d;
-    const tGeo=new THREE.PlaneGeometry(2+Math.random()*2,3+Math.random()*2,1,1);
-    const tuft=new THREE.Mesh(tGeo,tuffMat);
-    tuft.position.set(tx,4.5+Math.random(),tz);
-    tuft.rotation.y=Math.random()*Math.PI;tuft.rotation.x=-0.1;
-    g.add(tuft);
-  }
+  // 80k instanced grass field (GLSL shader, created after island is positioned)
+  // Deferred — grass fields are created after buildIsland returns and group is positioned
+  isl._grassParams = { radius: isl.r * 0.5, groundY: isl.groundH || 7 };
 
   // Bushes — round green blobs
   const bushMat=new THREE.MeshPhongMaterial({color:0x2a7a22,flatShading:true});
@@ -1265,6 +1293,7 @@ function mkSplash(x,z){
 
 // ============ GAME STATE ============
 let gameStarted=false,gameOver=false,time=0;
+let _grassFields=[];
 let logs=[];function addLog(m){logs.unshift(m);if(logs.length>4)logs.pop();}
 let wind={angle:Math.random()*Math.PI*2,speed:0.5+Math.random()*0.5,timer:0,targetAngle:Math.random()*Math.PI*2,targetSpeed:0.5+Math.random()*0.5};
 
@@ -1545,6 +1574,7 @@ function startIslandTransition(island){
           setTimeout(() => {
             try {
               saveGameState();
+              try { sessionStorage.setItem('skullSailResumeFromIsland', '1'); } catch(_e) {}
               const params = '?type=' + encodeURIComponent(island.type) + '&name=' + encodeURIComponent(island.name);
               const target = new URL('pirate3d-babylon/index.html' + params, window.location.href).href;
               console.log('[Dock] Redirecting to:', target);
@@ -1567,13 +1597,12 @@ function startIslandTransition(island){
 // Each island tracks its placed assets grouped by cluster.
 // Proxies represent clusters at distance; full detail swaps in close.
 
-// Reveal distance bands (from island center)
-const REVEAL_HERO       = 2200;  // hero landmarks visible very far
-const REVEAL_STRUCTURAL = 1000;  // structural clusters at mid range
-const REVEAL_FILLER     = 500;   // filler only when near
-const REVEAL_PROXY_OUT  = 1200;  // proxy visible beyond this (silhouette mode)
-const REVEAL_PROXY_IN   = 800;   // proxy fades out below this (full detail takes over)
-const HYSTERESIS        = 80;    // prevent flicker at band edges
+// Reveal distance bands — tuned via NavPresentation (F10)
+let REVEAL_HERO       = 2200;
+let REVEAL_STRUCTURAL = 1000;
+let REVEAL_FILLER     = 500;
+let REVEAL_PROXY_IN   = 800;
+let HYSTERESIS        = 80;
 
 // Per-island asset registry: populated by initAssetPipeline
 // Each entry: { islandIdx, clusters: Map<clusterName, {hero:[], structural:[], filler:[], proxy:null, anchorPos}> }
@@ -1843,7 +1872,39 @@ let camShake=0,wakeTimer=0;
 // Each island gets a streaming tier updated every ~0.3s
 let islandTiers = []; // parallel to islands[], values: 'near','mid','far','hidden'
 let streamTimer = 0;
-const STREAM_INTERVAL = 0.3;
+let STREAM_INTERVAL = 0.3;
+
+function applyNavTuning(){
+  if(!window.NavPresentation) return;
+  const t = window.NavPresentation.tuning;
+  STREAM_NEAR = t.stream.near;
+  STREAM_MID = t.stream.mid;
+  STREAM_FAR = t.stream.far;
+  STREAM_INTERVAL = t.stream.interval;
+  REVEAL_HERO = t.reveal.hero;
+  REVEAL_STRUCTURAL = t.reveal.structural;
+  REVEAL_FILLER = t.reveal.filler;
+  REVEAL_PROXY_IN = t.reveal.proxyIn;
+  HYSTERESIS = t.reveal.hysteresis;
+}
+applyNavTuning();
+window.applyNavTuning = applyNavTuning;
+
+let navPresentationDebugOpen = false;
+
+function refreshNavPresentationDebug(){
+  const live = document.querySelector('[data-nav-live]');
+  if(!live || !window.NavPresentation) return;
+  const L = window.NavPresentation.tuning.loading;
+  const snap = window.NavPresentation.getSnapshot(islands, P, islandTiers, streamTimer, islandAssetRegistry);
+  live.textContent =
+    `Streaming (m): near<${STREAM_NEAR} · mid<${STREAM_MID} · far<${STREAM_FAR} · scan every ${STREAM_INTERVAL.toFixed(2)}s\n` +
+    `Reveal (m): hero<${REVEAL_HERO} · structural<${REVEAL_STRUCTURAL} · filler<${REVEAL_FILLER} · proxyIn ${REVEAL_PROXY_IN} · hyst ±${HYSTERESIS}\n` +
+    `Tier timer: ${streamTimer.toFixed(3)}s (accumulates; resets after each scan)\n` +
+    `Loading overlay: tick ${L.tickMs}ms · progress step ${L.progressMin}–${L.progressMax} · PLAY after ${L.playDelayMs}ms · fade ${L.fadeOutMs}ms\n` +
+    `Nearest islands + reveal flags:\n` + snap.nearest.join('\n');
+}
+window.refreshNavPresentationDebug = refreshNavPresentationDebug;
 
 function updateIslandStreaming(dt){
   streamTimer += dt;
@@ -1917,7 +1978,9 @@ function updateIslandStreaming(dt){
       c.position.x = wp2.x;
       c.position.z = wp2.z;
       const d = Math.hypot(wp2.x - P.x, wp2.z - P.z);
-      c.visible = d < (P.onShip ? 600 : 250);
+      const fc = window.NavPresentation && window.NavPresentation.tuning.fallbackCull;
+      const lim = fc ? (P.onShip ? fc.onShip : fc.onFoot) : (P.onShip ? 600 : 250);
+      c.visible = d < lim;
     });
   }
 }
@@ -2134,6 +2197,8 @@ function resetPlayer(){
 const ISLAND_TYPES=['tropical','fort','village','ruins','outpost','wild'];
 function genIslands(){
   islMeshes.forEach(m=>scene.remove(m));islMeshes=[];islands=[];
+  // Clean up old grass fields
+  _grassFields.forEach(gf=>{scene.remove(gf.mesh);});_grassFields=[];
   // Reset seed so islands generate identically for a given _worldSeed
   _seed = _worldSeed;
   const R = seededRandom; // shorthand
@@ -2168,6 +2233,14 @@ function genIslands(){
       groundH:7
     };
     islands.push(isl);let m=buildIsland(isl);scene.add(m);islMeshes.push(m);
+    // Create instanced grass field scaled to island size
+    if(window.createGrassField && isl._grassParams){
+      const gp = isl._grassParams;
+      const center = new THREE.Vector3(isl.x, 0, isl.y);
+      const blades = isl.size==='large'?12000:isl.size==='medium'?6000:3000;
+      const gf = window.createGrassField(scene, center, gp.radius, gp.groundY, blades);
+      _grassFields.push(gf);
+    }
   }
   // Initialize streaming tiers
   islandTiers = islands.map(() => 'near');
@@ -2352,6 +2425,199 @@ window.addEventListener('keydown',e=>{
 function angleDiff(a,b){let d=b-a;while(d>Math.PI)d-=Math.PI*2;while(d<-Math.PI)d+=Math.PI*2;return d;}
 function lerpAngle(a,b,t){return a+angleDiff(a,b)*t;}
 
+// ============ MINIMAP CHART SYMBOLS (top-right) ============
+function drawMinimapIslandSymbol(mc, cx, cy, isl, mmScale){
+  const rPix = Math.max(2.5, isl.r * mmScale);
+  const sh = isl.shape;
+  if(sh && sh.length >= 3){
+    mc.beginPath();
+    for(let i = 0; i < sh.length; i++){
+      const px = cx + sh[i].x * mmScale;
+      const py = cy + sh[i].y * mmScale;
+      if(i === 0) mc.moveTo(px, py);
+      else mc.lineTo(px, py);
+    }
+    mc.closePath();
+  } else {
+    mc.beginPath();
+    mc.ellipse(cx, cy, rPix * 0.95, rPix * 0.75, 0.15, 0, Math.PI * 2);
+  }
+  const land = {
+    fort:'#7a6b52', village:'#c9a86c', tropical:'#3d6848', ruins:'#8f8f7a',
+    outpost:'#6f7a72', wild:'#2d4f38'
+  };
+  mc.fillStyle = land[isl.type] || '#3d5c45';
+  mc.fill();
+  mc.strokeStyle = 'rgba(15,22,28,0.55)';
+  mc.lineWidth = 0.85;
+  mc.stroke();
+  if(isl.type === 'fort' || isl.hasFort){
+    mc.fillStyle = 'rgba(35,32,28,0.9)';
+    const w = rPix * 0.55, h = rPix * 0.45;
+    mc.fillRect(cx - w * 0.5, cy - h * 0.5, w, h);
+    mc.strokeStyle = 'rgba(0,0,0,0.35)';
+    mc.strokeRect(cx - w * 0.5, cy - h * 0.5, w, h);
+  }
+  if(isl.type === 'village' && isl.hasHuts){
+    mc.fillStyle = 'rgba(90,70,50,0.85)';
+    for(let k = 0; k < 3; k++){
+      const ox = (k - 1) * rPix * 0.22;
+      mc.fillRect(cx + ox - rPix * 0.08, cy + rPix * 0.15, rPix * 0.16, rPix * 0.12);
+    }
+  }
+  if(isl.type === 'tropical' || isl.type === 'wild'){
+    mc.strokeStyle = 'rgba(40,90,55,0.9)';
+    mc.lineWidth = 0.6;
+    for(let k = 0; k < 3; k++){
+      const a = 0.3 + k * 0.9;
+      mc.beginPath();
+      mc.arc(cx + Math.cos(a) * rPix * 0.35, cy + Math.sin(a) * rPix * 0.35, rPix * 0.2, a, a + 1.2);
+      mc.stroke();
+    }
+  }
+  if(isl.type === 'ruins'){
+    mc.strokeStyle = 'rgba(60,58,52,0.9)';
+    mc.lineWidth = 0.7;
+    mc.beginPath();
+    mc.moveTo(cx - rPix * 0.4, cy + rPix * 0.35);
+    mc.lineTo(cx - rPix * 0.15, cy - rPix * 0.45);
+    mc.lineTo(cx + rPix * 0.25, cy + rPix * 0.25);
+    mc.stroke();
+  }
+  if(isl.hasTower){
+    mc.fillStyle = 'rgba(55,55,62,0.95)';
+    mc.beginPath();
+    mc.moveTo(cx + rPix * 0.35, cy - rPix * 0.1);
+    mc.lineTo(cx + rPix * 0.55, cy - rPix * 0.55);
+    mc.lineTo(cx + rPix * 0.65, cy + rPix * 0.15);
+    mc.closePath();
+    mc.fill();
+  }
+  if(isl.hasTreasure && !isl.treasureCollected){
+    mc.strokeStyle = 'rgba(232,192,72,0.95)';
+    mc.lineWidth = 1.1;
+    mc.setLineDash([2, 2]);
+    mc.beginPath();
+    mc.arc(cx, cy, rPix + 2, 0, Math.PI * 2);
+    mc.stroke();
+    mc.setLineDash([]);
+  }
+  if(isl.hasShop){
+    mc.strokeStyle = 'rgba(200,220,255,0.9)';
+    mc.lineWidth = 1;
+    const s = 2.2;
+    mc.beginPath();
+    mc.moveTo(cx - s, cy - s); mc.lineTo(cx + s, cy + s);
+    mc.moveTo(cx + s, cy - s); mc.lineTo(cx - s, cy + s);
+    mc.stroke();
+  }
+}
+
+function drawMinimapEnemyShip(mc, cx, cy, e, mmScale){
+  const len = [5, 6.8, 8.5][e.tier] || 6;
+  const wid = [2, 2.6, 3.2][e.tier] || 2.5;
+  const hull = ['#c2783a','#a02828','#501010'][e.tier];
+  mc.save();
+  mc.translate(cx, cy);
+  mc.rotate(e.angle);
+  mc.beginPath();
+  mc.moveTo(len * 0.55, 0);
+  mc.quadraticCurveTo(len * 0.2, wid * 0.55, -len * 0.48, wid * 0.42);
+  mc.quadraticCurveTo(-len * 0.55, 0, -len * 0.48, -wid * 0.42);
+  mc.quadraticCurveTo(len * 0.2, -wid * 0.55, len * 0.55, 0);
+  mc.closePath();
+  mc.fillStyle = hull;
+  mc.fill();
+  mc.strokeStyle = 'rgba(0,0,0,0.45)';
+  mc.lineWidth = 0.65;
+  mc.stroke();
+  mc.strokeStyle = 'rgba(240,240,255,0.5)';
+  mc.lineWidth = 0.45;
+  mc.beginPath();
+  mc.moveTo(len * 0.05, -wid * 0.35);
+  mc.lineTo(-len * 0.25, -wid * 0.35);
+  mc.stroke();
+  mc.strokeStyle = '#dde8f0';
+  mc.lineWidth = 0.5;
+  mc.beginPath();
+  mc.moveTo(-len * 0.05, -wid * 0.15);
+  mc.lineTo(-len * 0.05, -wid * (1.6 + e.tier * 0.25));
+  mc.lineTo(len * 0.25, -wid * 0.85);
+  mc.closePath();
+  mc.fillStyle = 'rgba(255,255,255,0.25)';
+  mc.fill();
+  mc.stroke();
+  mc.restore();
+}
+
+function drawMinimapDisaster(mc, cx, cy, d, mmScale, animT){
+  const rad = Math.max(3.5, (d.radius || 80) * mmScale);
+  mc.save();
+  mc.translate(cx, cy);
+  if(d.type === 'whirlpool'){
+    mc.strokeStyle = 'rgba(100,190,255,0.9)';
+    mc.lineWidth = 0.9;
+    for(let i = 0; i < 4; i++){
+      const r = rad * (0.25 + i * 0.22);
+      const start = animT * (1.2 + i * 0.4) + i * 0.8;
+      mc.beginPath();
+      mc.arc(0, 0, r, start, start + Math.PI * 1.65);
+      mc.stroke();
+    }
+    mc.fillStyle = 'rgba(40,120,200,0.15)';
+    mc.beginPath();
+    mc.arc(0, 0, rad * 0.35, 0, Math.PI * 2);
+    mc.fill();
+  } else if(d.type === 'tornado'){
+    mc.fillStyle = 'rgba(190,195,210,0.35)';
+    mc.beginPath();
+    mc.moveTo(0, -rad * 1.1);
+    mc.lineTo(rad * 0.45, rad * 0.75);
+    mc.lineTo(-rad * 0.45, rad * 0.75);
+    mc.closePath();
+    mc.fill();
+    mc.strokeStyle = 'rgba(120,125,145,0.85)';
+    mc.lineWidth = 0.8;
+    mc.stroke();
+    mc.strokeStyle = 'rgba(255,255,255,0.25)';
+    mc.beginPath();
+    mc.moveTo(0, -rad * 1.05);
+    mc.quadraticCurveTo(rad * 0.3, 0, 0, rad * 0.65);
+    mc.stroke();
+  } else {
+    mc.strokeStyle = 'rgba(180,90,220,0.85)';
+    mc.lineWidth = 1.1;
+    mc.beginPath();
+    mc.arc(0, 0, rad * 0.85, 0.2, Math.PI * 1.7);
+    mc.stroke();
+    mc.beginPath();
+    mc.arc(0, 0, rad * 0.55, Math.PI * 0.1, Math.PI * 1.4);
+    mc.stroke();
+    for(let k = 0; k < 6; k++){
+      const a = (k / 6) * Math.PI * 2 + animT;
+      mc.beginPath();
+      mc.moveTo(Math.cos(a) * rad * 0.3, Math.sin(a) * rad * 0.3);
+      mc.lineTo(Math.cos(a) * rad * 0.95, Math.sin(a) * rad * 0.95);
+      mc.stroke();
+    }
+  }
+  mc.restore();
+}
+
+function drawMinimapLootCrate(mc, cx, cy){
+  const s = 2.5;
+  mc.fillStyle = 'rgba(110,75,40,0.95)';
+  mc.fillRect(cx - s, cy - s * 0.7, s * 2, s * 1.4);
+  mc.strokeStyle = 'rgba(40,25,12,0.8)';
+  mc.lineWidth = 0.5;
+  mc.strokeRect(cx - s, cy - s * 0.7, s * 2, s * 1.4);
+  mc.strokeStyle = 'rgba(218,165,32,0.9)';
+  mc.beginPath();
+  mc.moveTo(cx - s, cy); mc.lineTo(cx + s, cy);
+  mc.moveTo(cx, cy - s * 0.7); mc.lineTo(cx, cy + s * 0.7);
+  mc.stroke();
+}
+
 // ============ INIT ============
 function initGame(){
   resetPlayer();
@@ -2372,6 +2638,7 @@ function initGame(){
   document.getElementById('enemy-hud').innerHTML='';
   addLog("Ye arrive at yer ship. Press F to board.");
   showPrompt("[F] Board Ship",4);
+  applyNavTuning();
 }
 
 // ============ UPDATE ============
@@ -2778,45 +3045,75 @@ function update(dt){
 
   let heading=(((-P.angle*180/Math.PI)%360)+360)%360;
   let dirs=['N','NE','E','SE','S','SW','W','NW'];
-  document.getElementById('compass').innerHTML=P.onShip?`${dirs[Math.round(heading/45)%8]} · ${heading.toFixed(0)}°`:'';
+  const comp = window.NavPresentation && window.NavPresentation.tuning.compass;
+  const showCompass = P.onShip || (comp && comp.showOnFoot);
+  const degStr = (!comp || comp.showDegrees) ? ` · ${heading.toFixed(0)}°` : '';
+  document.getElementById('compass').innerHTML = showCompass ? `${dirs[Math.round(heading/45)%8]}${degStr}` : '';
 
-  // Minimap — player-centered (infinite world, no edges visible)
+  // Minimap — player-centered (infinite world); landmark draw order from NavPresentation
   const mc=document.getElementById('mm').getContext('2d');
+  const mmT = window.NavPresentation ? window.NavPresentation.tuning.minimap : { rangeShip:2000, rangeFoot:600, gridStepShip:500, gridStepFoot:150, gridAlpha:0.12, borderAlpha:0.35 };
+  const mmRange = P.onShip ? mmT.rangeShip : mmT.rangeFoot;
+  const mmScale = 75 / mmRange;
   mc.fillStyle='#0a1825';mc.fillRect(0,0,150,150);
-  const mmRange = P.onShip ? 2000 : 600; // visible radius on minimap
-  const mmScale = 75 / mmRange; // pixels per world unit (center at 75,75)
-  // Grid lines
-  mc.strokeStyle='rgba(100,150,200,0.06)';mc.lineWidth=0.5;
-  const gridStep = P.onShip ? 500 : 150;
-  for(let g = -mmRange; g <= mmRange; g += gridStep){
-    let gx = 75 + (g - ((P.x % gridStep) - gridStep/2 + gridStep) % gridStep + gridStep/2) * mmScale;
-    // Simplified: just draw a few grid lines
+  mc.strokeStyle='rgba(232,213,163,'+(mmT.borderAlpha!=null?mmT.borderAlpha:0.35)+')';mc.lineWidth=1;mc.strokeRect(0.5,0.5,149,149);
+  const ga = mmT.gridAlpha != null ? mmT.gridAlpha : 0.12;
+  mc.strokeStyle='rgba(100,150,200,'+ga+')';mc.lineWidth=0.5;
+  const gridStep = P.onShip ? mmT.gridStepShip : mmT.gridStepFoot;
+  const ox = ((P.x % gridStep) + gridStep) % gridStep;
+  const oz = ((P.z % gridStep) + gridStep) % gridStep;
+  for(let gx = -mmRange - gridStep; gx <= mmRange + gridStep; gx += gridStep){
+    const sx = 75 + (gx - ox) * mmScale;
+    if(sx < -2 || sx > 152) continue;
+    mc.beginPath();mc.moveTo(sx, 0);mc.lineTo(sx, 150);mc.stroke();
   }
-  // Islands (wrapped relative to player)
-  for(let isl of islands){
+  for(let gz = -mmRange - gridStep; gz <= mmRange + gridStep; gz += gridStep){
+    const sy = 75 + (gz - oz) * mmScale;
+    if(sy < -2 || sy > 152) continue;
+    mc.beginPath();mc.moveTo(0, sy);mc.lineTo(150, sy);mc.stroke();
+  }
+  const sortedIslands = islands.slice().sort((a,b)=>{
+    const pa = window.NavPresentation ? window.NavPresentation.islandPriority(a) : 0;
+    const pb = window.NavPresentation ? window.NavPresentation.islandPriority(b) : 0;
+    return pa - pb;
+  });
+  for(let isl of sortedIslands){
     let dx = wrapDelta(isl.x - P.x), dz = wrapDelta(isl.y - P.z);
     if(Math.abs(dx) > mmRange || Math.abs(dz) > mmRange) continue;
-    mc.fillStyle=isl.hasTreasure&&!isl.treasureCollected?'#c2a66b':isl.hasShop?'#5a8a5a':'#3a5a3a';
-    mc.beginPath();mc.arc(75+dx*mmScale, 75+dz*mmScale, Math.max(2, isl.r*mmScale), 0, Math.PI*2);mc.fill();
+    drawMinimapIslandSymbol(mc, 75 + dx * mmScale, 75 + dz * mmScale, isl, mmScale);
   }
-  // Enemies (wrapped)
+  for(let d of disasters){
+    let dx = wrapDelta(d.x - P.x), dz = wrapDelta(d.z - P.z);
+    if(Math.abs(dx) > mmRange || Math.abs(dz) > mmRange) continue;
+    drawMinimapDisaster(mc, 75 + dx * mmScale, 75 + dz * mmScale, d, mmScale, time);
+  }
+  for(let lc of lootCrates){
+    let dx = wrapDelta(lc.x - P.x), dz = wrapDelta(lc.z - P.z);
+    if(Math.abs(dx) > mmRange || Math.abs(dz) > mmRange) continue;
+    drawMinimapLootCrate(mc, 75 + dx * mmScale, 75 + dz * mmScale);
+  }
   for(let e of enemies){
     if(e.sinking) continue;
     let dx = wrapDelta(e.x - P.x), dz = wrapDelta(e.z - P.z);
     if(Math.abs(dx) > mmRange || Math.abs(dz) > mmRange) continue;
-    mc.fillStyle=['#cc6633','#cc3333','#ff2222'][e.tier];
-    mc.fillRect(75+dx*mmScale-2, 75+dz*mmScale-2, 4, 4);
+    drawMinimapEnemyShip(mc, 75 + dx * mmScale, 75 + dz * mmScale, e, mmScale);
   }
-  // Loot crates (wrapped)
-  for(let lc of lootCrates){
-    let dx = wrapDelta(lc.x - P.x), dz = wrapDelta(lc.z - P.z);
-    if(Math.abs(dx) > mmRange || Math.abs(dz) > mmRange) continue;
-    mc.fillStyle='#daa520';mc.fillRect(75+dx*mmScale-1.5, 75+dz*mmScale-1.5, 3, 3);
-  }
-  // Player always at center
   mc.fillStyle=P.onShip?'#ffe4a1':'#88ff88';mc.beginPath();mc.arc(75, 75, 3, 0, Math.PI*2);mc.fill();
-  if(P.onShip){mc.fillStyle='#ffe4a1';mc.save();mc.translate(75, 75);mc.rotate(P.angle);mc.fillRect(0,-1,8,2);mc.restore();}
-  // Wind arrow
+  if(P.onShip){
+    mc.save();mc.translate(75, 75);mc.rotate(P.angle);
+    mc.fillStyle='#f5e6c8';
+    mc.beginPath();
+    mc.moveTo(9, 0);
+    mc.quadraticCurveTo(2, 2.2, -7, 1.2);
+    mc.quadraticCurveTo(-8, 0, -7, -1.2);
+    mc.quadraticCurveTo(2, -2.2, 9, 0);
+    mc.closePath();
+    mc.fill();
+    mc.strokeStyle='rgba(40,30,20,0.5)';mc.lineWidth=0.6;mc.stroke();
+    mc.strokeStyle='rgba(255,255,255,0.35)';mc.lineWidth=0.45;
+    mc.beginPath();mc.moveTo(2, -1);mc.lineTo(-3, -4);mc.lineTo(-1, -1);mc.closePath();mc.stroke();
+    mc.restore();
+  }
   mc.strokeStyle='rgba(100,200,255,0.4)';mc.lineWidth=1.5;mc.save();mc.translate(130,130);mc.rotate(wind.angle);mc.beginPath();mc.moveTo(-8,0);mc.lineTo(8,0);mc.moveTo(4,-3);mc.lineTo(8,0);mc.lineTo(4,3);mc.stroke();mc.restore();
 
   // Island labels
@@ -2844,6 +3141,10 @@ function update(dt){
     ehHtml+=`<div class="enemy-hp" style="left:${sx-25}px;top:${sy-4}px"><div class="enemy-hp-fill" style="width:${hp}%;background:${barCol}"></div></div>`;
   }
   ehud.innerHTML=ehHtml;
+
+  if(navPresentationDebugOpen && window.NavPresentation){
+    refreshNavPresentationDebug();
+  }
 }
 
 // ============ LOOP ============
@@ -2851,7 +3152,7 @@ let lastT=0;
 function loop(now){
   requestAnimationFrame(loop);
   let dt=Math.min((now-lastT)/1000,0.05);lastT=now;
-  if(gameStarted){update(dt);animOcean(time);}
+  if(gameStarted){update(dt);animOcean(time);for(let gf of _grassFields)gf.update(time);}
   renderer.render(scene,camera);
 }
 
@@ -2890,7 +3191,10 @@ if(restartBtn) restartBtn.addEventListener('click',()=>{
 // AUTO-RESUME: If returning from an island visit, skip title and restore state
 (function checkAutoResume(){
   const saved = loadGameState();
-  if(!saved) return;
+  if(!saved){
+    try { sessionStorage.removeItem('skullSailResumeFromIsland'); } catch(_e) {}
+    return;
+  }
   console.log('[Resume] Restoring game state from island visit...');
   // Apply seed + stats BEFORE initGame so islands match
   applyGameState(saved);
@@ -2923,13 +3227,80 @@ let assetPipelineActive=false;
 let assetDebugEnabled=false;
 let placedAssets=[]; // track all pipeline-placed assets for cleanup
 
-// Toggle debug overlay with backtick key
+// Toggle debug overlays: ` — assets · F10 — navigation / streaming / loading
 window.addEventListener('keydown',e=>{
   if(e.key==='`'){
     assetDebugEnabled=!assetDebugEnabled;
-    document.getElementById('asset-debug').style.display=assetDebugEnabled?'block':'none';
+    const ad = document.getElementById('asset-debug');
+    if(ad) ad.style.display=assetDebugEnabled?'block':'none';
+  }
+  if(e.key==='F10'){
+    e.preventDefault();
+    navPresentationDebugOpen = !navPresentationDebugOpen;
+    const el = document.getElementById('nav-presentation-debug');
+    if(el) el.style.display = navPresentationDebugOpen ? 'block' : 'none';
+    if(navPresentationDebugOpen) refreshNavPresentationDebug();
   }
 });
+
+(function setupNavDebugPanel(){
+  function bindSlider(id, path, parseFn){
+    const input = document.getElementById(id);
+    if(!input || !window.NavPresentation) return;
+    const valEl = document.getElementById(id + '-val');
+    const applyFromTuning = () => {
+      const parts = path.split('.');
+      let o = window.NavPresentation.tuning;
+      for(let i = 0; i < parts.length - 1; i++) o = o[parts[i]];
+      input.value = o[parts[parts.length - 1]];
+      if(valEl) valEl.textContent = String(o[parts[parts.length - 1]]);
+    };
+    applyFromTuning();
+    input.addEventListener('input', () => {
+      const parts = path.split('.');
+      let o = window.NavPresentation.tuning;
+      for(let i = 0; i < parts.length - 1; i++) o = o[parts[i]];
+      o[parts[parts.length - 1]] = parseFn(input.value);
+      if(valEl) valEl.textContent = String(o[parts[parts.length - 1]]);
+      window.applyNavTuning();
+      window.NavPresentation.save();
+    });
+  }
+  function go(){
+    if(!window.NavPresentation) return;
+    bindSlider('nav-s-near', 'stream.near', parseFloat);
+    bindSlider('nav-s-mid', 'stream.mid', parseFloat);
+    bindSlider('nav-s-far', 'stream.far', parseFloat);
+    bindSlider('nav-s-int', 'stream.interval', parseFloat);
+    bindSlider('nav-r-hero', 'reveal.hero', parseFloat);
+    bindSlider('nav-r-struct', 'reveal.structural', parseFloat);
+    bindSlider('nav-r-fill', 'reveal.filler', parseFloat);
+    bindSlider('nav-r-hyst', 'reveal.hysteresis', parseFloat);
+    bindSlider('nav-m-rs', 'minimap.rangeShip', parseFloat);
+    bindSlider('nav-m-rf', 'minimap.rangeFoot', parseFloat);
+    bindSlider('nav-l-play', 'loading.playDelayMs', v => parseInt(v, 10));
+    const cb = document.getElementById('nav-c-foot');
+    if(cb){
+      cb.checked = !!window.NavPresentation.tuning.compass.showOnFoot;
+      cb.addEventListener('change', () => {
+        window.NavPresentation.tuning.compass.showOnFoot = cb.checked;
+        window.NavPresentation.save();
+      });
+    }
+    const saveBtn = document.getElementById('nav-dbg-save');
+    if(saveBtn) saveBtn.addEventListener('click', () => window.NavPresentation.save());
+    const resetBtn = document.getElementById('nav-dbg-reset');
+    if(resetBtn) resetBtn.addEventListener('click', () => {
+      if(confirm('Reset all navigation / streaming tuning to defaults?')){
+        window.NavPresentation.reset();
+        window.applyNavTuning();
+        location.reload();
+      }
+    });
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
+  else go();
+})();
 
 function updateLoadingBar(pct,text){
   const overlay=document.getElementById('loading-overlay');
