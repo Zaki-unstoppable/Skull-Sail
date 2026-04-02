@@ -3064,7 +3064,7 @@ function update(dt){
     mc.textAlign = 'center';
     mc.textBaseline = 'middle';
     mc.font = '22px Arial';
-    mc.fillText('⛵', 0, 0);
+    mc.fillText('🚢', 0, 0);
     mc.restore();
   }
   
