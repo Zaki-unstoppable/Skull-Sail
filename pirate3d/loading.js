@@ -16,8 +16,8 @@ function _init(){
   v1.muted = true; v2.muted = true;
   v1.playsInline = true; v2.playsInline = true;
   
-  // Style: scale(1.25) deeply crops out the baked-in black borders
-  var vStyle = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:-1;transform:scale(1.25);transform-origin:center;transition:opacity 0.4s ease-in-out;pointer-events:none;';
+  // Style: scale(1.05) strictly limits edge borders without excessively cropping the skull
+  var vStyle = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:-1;transform:scale(1.05);transform-origin:center;transition:opacity 0.4s ease-in-out;pointer-events:none;';
   v1.style.cssText = vStyle + 'opacity:1;';
   v2.style.cssText = vStyle + 'opacity:0;';
   
