@@ -2427,15 +2427,16 @@ function lerpAngle(a,b,t){return a+angleDiff(a,b)*t;}
 
 // ============ MINIMAP CHART SYMBOLS (top-right) ============
 function drawMinimapIslandSymbol(mc, cx, cy, isl, mmScale){
-  const rPix = Math.max(3.5, isl.r * mmScale);
+  // Made islands visually larger on the minimap
+  const rPix = Math.max(4.5, isl.r * mmScale * 1.5);
   const sh = isl.shape;
   
   // Draw the island landmass
   if(sh && sh.length >= 3){
     mc.beginPath();
     for(let i = 0; i < sh.length; i++){
-      const px = cx + sh[i].x * mmScale;
-      const py = cy + sh[i].y * mmScale;
+      const px = cx + sh[i].x * mmScale * 1.5;
+      const py = cy + sh[i].y * mmScale * 1.5;
       if(i === 0) mc.moveTo(px, py);
       else mc.lineTo(px, py);
     }
@@ -2445,28 +2446,17 @@ function drawMinimapIslandSymbol(mc, cx, cy, isl, mmScale){
     mc.ellipse(cx, cy, rPix * 0.95, rPix * 0.75, 0.15, 0, Math.PI * 2);
   }
   
-  // Map parchment style land
-  mc.fillStyle = 'rgba(215, 195, 150, 0.9)'; 
-  mc.fill();
-  mc.strokeStyle = 'rgba(120, 90, 60, 0.8)';
-  mc.lineWidth = 1.2;
-  mc.stroke();
-  
-  // Fun Bright Green Tree Symbol (scales with island)
-  // Draw trunk
-  mc.fillStyle = '#654321'; // Dark brown
-  mc.fillRect(cx - rPix*0.06, cy, rPix*0.12, rPix*0.45);
-  // Draw leaves
-  mc.fillStyle = '#2ecc71'; // Bright, fun green
-  mc.beginPath(); 
-  mc.arc(cx, cy - rPix*0.2, rPix*0.35, 0, Math.PI*2);
-  mc.arc(cx - rPix*0.25, cy + rPix*0.05, rPix*0.28, 0, Math.PI*2);
-  mc.arc(cx + rPix*0.25, cy + rPix*0.05, rPix*0.28, 0, Math.PI*2);
+  // Clean nautical island color scheme
+  const land = {
+    fort:'#7a6b52', village:'#c9a86c', tropical:'#3d6848', ruins:'#8f8f7a',
+    outpost:'#6f7a72', wild:'#2d4f38'
+  };
+  mc.fillStyle = land[isl.type] || '#3d5c45';
   mc.fill();
   
-  // Clean green outline
-  mc.strokeStyle = '#27ae60';
-  mc.lineWidth = 1.0;
+  // Restored the prominent circular outlines to make them pop!
+  mc.strokeStyle = 'rgba(200,220,240,0.5)';
+  mc.lineWidth = 1.5;
   mc.stroke();
 
   // Add specific marks based on features (e.g. treasure)
@@ -2475,7 +2465,7 @@ function drawMinimapIslandSymbol(mc, cx, cy, isl, mmScale){
     mc.font = `bold ${Math.round(rPix*0.8)}px sans-serif`;
     mc.textAlign = 'center';
     mc.textBaseline = 'middle';
-    mc.fillText('X', cx, cy + rPix*0.5);
+    mc.fillText('X', cx, cy);
   }
 }
 
@@ -3021,10 +3011,10 @@ function update(dt){
   const mmT = window.NavPresentation ? window.NavPresentation.tuning.minimap : { rangeShip:2000, rangeFoot:600, gridStepShip:500, gridStepFoot:150, gridAlpha:0.12, borderAlpha:0.35 };
   const mmRange = P.onShip ? mmT.rangeShip : mmT.rangeFoot;
   const mmScale = 110 / mmRange;
-  // Beautiful parchment paper background map
-  mc.fillStyle='rgba(240,230,205,0.9)';mc.fillRect(0,0,220,220);
-  const ga = mmT.gridAlpha != null ? mmT.gridAlpha : 0.4;
-  mc.strokeStyle='rgba(160,130,90,'+ga+')';mc.lineWidth=1.0;
+  // Nautical dark blue background to match the ocean
+  mc.fillStyle='rgba(12,24,36,1.0)';mc.fillRect(0,0,220,220);
+  const ga = mmT.gridAlpha != null ? mmT.gridAlpha : 0.15;
+  mc.strokeStyle='rgba(100,160,220,'+ga+')';mc.lineWidth=0.8;
   const gridStep = P.onShip ? mmT.gridStepShip : mmT.gridStepFoot;
   const ox = ((P.x % gridStep) + gridStep) % gridStep;
   const oz = ((P.z % gridStep) + gridStep) % gridStep;
@@ -3065,29 +3055,23 @@ function update(dt){
     drawMinimapEnemyShip(mc, 110 + dx * mmScale, 110 + dz * mmScale, e, mmScale);
   }
   
-  // Clean, Unobstructed High-Fidelity Player Marker
-  mc.fillStyle=P.onShip?'#ffe4a1':'#88ff88';mc.beginPath();mc.arc(110, 110, 5, 0, Math.PI*2);mc.fill();
+  // Simplified Emoji Player Marker
+  mc.fillStyle=P.onShip?'rgba(0,0,0,0)':'#88ff88';mc.beginPath();mc.arc(110, 110, 5, 0, Math.PI*2);mc.fill();
   if(P.onShip){
-    mc.save();mc.translate(110, 110);mc.rotate(P.angle);
-    mc.scale(1.8, 1.8); // Blow it up nicely
-    mc.fillStyle='#fdeb82';
-    mc.beginPath();
-    mc.moveTo(11, 0); // Pointy tip
-    mc.quadraticCurveTo(2, 3.5, -7, 2.5); // Right hull
-    mc.quadraticCurveTo(-9, 0, -7, -2.5); // Flat stern
-    mc.quadraticCurveTo(2, -3.5, 11, 0); // Left hull
-    mc.closePath();
-    mc.fill();
-    
-    // Crisp golden border, removed the messy line going through it
-    mc.strokeStyle='rgba(40,20,5,0.9)';mc.lineWidth=0.8;mc.stroke();
+    mc.save();mc.translate(110, 110);
+    // Add 90 degrees offset since the emoji points UP natively but our pure Angle 0 is moving RIGHT
+    mc.rotate(P.angle + Math.PI/2);
+    mc.textAlign = 'center';
+    mc.textBaseline = 'middle';
+    mc.font = '22px Arial';
+    mc.fillText('⛵', 0, 0);
     mc.restore();
   }
   
   // Prominent Wind Compass Indicator
-  mc.strokeStyle='rgba(100,180,250,0.85)';mc.lineWidth=3.0; // Thick bright blue arrow to pop against parchment
+  mc.strokeStyle='rgba(150,200,250,0.5)';mc.lineWidth=2.0; 
   mc.save();mc.translate(200, 200);mc.rotate(wind.angle);
-  mc.beginPath();mc.moveTo(-10,0);mc.lineTo(12,0);mc.moveTo(6,-5);mc.lineTo(12,0);mc.lineTo(6,5);mc.stroke();
+  mc.beginPath();mc.moveTo(-8,0);mc.lineTo(10,0);mc.moveTo(4,-4);mc.lineTo(10,0);mc.lineTo(4,4);mc.stroke();
   mc.restore();
 
   // Island labels
