@@ -2427,16 +2427,19 @@ function lerpAngle(a,b,t){return a+angleDiff(a,b)*t;}
 
 // ============ MINIMAP CHART SYMBOLS (top-right) ============
 function drawMinimapIslandSymbol(mc, cx, cy, isl, mmScale){
-  // Made islands visually larger on the minimap
-  const rPix = Math.max(4.5, isl.r * mmScale * 1.5);
+  // Increase island base scale heavily to match MMO visibility standards
+  const rPix = Math.max(6, isl.r * mmScale * 1.9);
   const sh = isl.shape;
   
-  // Draw the island landmass
+  // Add a soft glow behind islands to make them look like painted MMO landmasses
+  mc.shadowColor = 'rgba(0,0,0,0.6)';
+  mc.shadowBlur = 8;
+  
   if(sh && sh.length >= 3){
     mc.beginPath();
     for(let i = 0; i < sh.length; i++){
-      const px = cx + sh[i].x * mmScale * 1.5;
-      const py = cy + sh[i].y * mmScale * 1.5;
+      const px = cx + sh[i].x * mmScale * 1.9;
+      const py = cy + sh[i].y * mmScale * 1.9;
       if(i === 0) mc.moveTo(px, py);
       else mc.lineTo(px, py);
     }
@@ -2446,20 +2449,20 @@ function drawMinimapIslandSymbol(mc, cx, cy, isl, mmScale){
     mc.ellipse(cx, cy, rPix * 0.95, rPix * 0.75, 0.15, 0, Math.PI * 2);
   }
   
-  // Clean nautical island color scheme
+  // Painted land feel
   const land = {
-    fort:'#7a6b52', village:'#c9a86c', tropical:'#3d6848', ruins:'#8f8f7a',
-    outpost:'#6f7a72', wild:'#2d4f38'
+    fort:'#6a5b42', village:'#a9884c', tropical:'#3d6848', ruins:'#7f7f6a',
+    outpost:'#5f6a62', wild:'#2d4f38'
   };
   mc.fillStyle = land[isl.type] || '#3d5c45';
   mc.fill();
   
-  // Restored the prominent circular outlines to make them pop!
-  mc.strokeStyle = 'rgba(200,220,240,0.5)';
+  mc.shadowBlur = 0; // Turn off shadow so outlines are crisp
+  mc.strokeStyle = 'rgba(180,210,230,0.5)';
   mc.lineWidth = 1.5;
   mc.stroke();
 
-  // Draw clean, minimalist white-on-black iconography
+  // Draw clean, minimalist white-on-black iconography without emojis
   let icon = '';
   if(isl.hasTreasure && !isl.treasureCollected) icon = 'X';
   else if(isl.type === 'fort') icon = '♜';
@@ -2468,39 +2471,52 @@ function drawMinimapIslandSymbol(mc, cx, cy, isl, mmScale){
   else if(isl.type === 'ruins') icon = '🏛';
   
   if(icon) {
-    mc.font = `bold ${Math.round(rPix*1.1)}px sans-serif`;
+    // Drop shadow for the icon to perfectly mimic UI badges
+    mc.shadowColor = 'rgba(0,0,0,1)';
+    mc.shadowOffsetX = 1; mc.shadowOffsetY = 1;
+    mc.shadowBlur = 2;
+    mc.font = `bold ${Math.max(12, Math.round(rPix*0.9))}px "Segoe UI", sans-serif`;
     mc.textAlign = 'center';
     mc.textBaseline = 'middle';
-    mc.lineWidth = 2; // thick stroke for high contrast visibility
-    mc.strokeStyle = 'rgba(0,0,0,0.8)';
+    
+    // Very sharp contrast 
+    mc.lineWidth = 2.5; 
+    mc.strokeStyle = 'rgba(0,0,0,0.9)';
     mc.strokeText(icon, cx, cy);
-    mc.fillStyle = (icon === 'X') ? '#ff4444' : '#ffffff';
+    
+    mc.fillStyle = (icon === 'X') ? '#e74c3c' : '#ffffff';
     mc.fillText(icon, cx, cy);
+    mc.shadowBlur = 0; mc.shadowOffsetX = 0; mc.shadowOffsetY = 0;
   }
 }
 
 function drawMinimapEnemyShip(mc, cx, cy, e, mmScale){
-  // Enlarged enemy icons so they are easily seen
-  const len = [7, 9, 11][e.tier] || 9;
-  const wid = [4, 5, 6][e.tier] || 5;
+  // Sized down slightly so they don't dominate excessively, but keep simple shape
+  const len = 7 + (e.tier * 1.5);
+  const wid = 3.5 + (e.tier * 1.0);
   
   mc.save();
   mc.translate(cx, cy);
   mc.rotate(e.angle);
   
-  // Draw a sleek, geometric aggressive boat arrow
+  // Draw sleek, menacing aggressive red chevrons (not bulky boats)
   mc.beginPath();
-  mc.moveTo(len, 0); // Bow tip
-  mc.lineTo(-len*0.7, wid); // Rear right
-  mc.lineTo(-len*0.3, 0); // Inner notch
-  mc.lineTo(-len*0.7, -wid); // Rear left
+  mc.moveTo(len, 0); // Tip
+  mc.lineTo(-len*0.8, wid); // Right wing
+  mc.lineTo(-len*0.3, 0);   // Inner engine notch
+  mc.lineTo(-len*0.8, -wid); // Left wing
   mc.closePath();
   
-  // Bright red fill with extremely visible black outline
-  mc.fillStyle = 'rgba(230, 40, 40, 0.9)';
+  // Give them a drop-shadow so they pop visually off the sea background
+  mc.shadowColor = 'rgba(0,0,0,0.8)';
+  mc.shadowBlur = 4; mc.shadowOffsetY = 2;
+  
+  mc.fillStyle = '#e74c3c';
   mc.fill();
-  mc.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-  mc.lineWidth = 1.5;
+  
+  mc.shadowBlur = 0; mc.shadowOffsetY = 0;
+  mc.strokeStyle = '#000000';
+  mc.lineWidth = 1.2;
   mc.stroke();
   
   mc.restore();
@@ -3055,24 +3071,33 @@ function update(dt){
     drawMinimapEnemyShip(mc, 110 + dx * mmScale, 110 + dz * mmScale, e, mmScale);
   }
   
-  // Crisp Minimalist Player Marker (White Arrow w/ Black Border)
+  // Crisp Minimalist Player Marker (Elegant White Arrow w/ Black Border & Drop Shadow)
   mc.fillStyle=P.onShip?'rgba(0,0,0,0)':'#88ff88';mc.beginPath();mc.arc(110, 110, 5, 0, Math.PI*2);mc.fill();
   if(P.onShip){
     mc.save();mc.translate(110, 110);
     mc.rotate(P.angle);
     
-    // Draw a sharp cursor arrowhead
+    // Smooth AAA shadow
+    mc.shadowColor = 'rgba(0,0,0,0.9)';
+    mc.shadowBlur = 5;
+    mc.shadowOffsetX = 1; mc.shadowOffsetY = 2;
+    
+    // Draw the sharp, distinctly MMO-style cursor arrowhead
     mc.beginPath();
     mc.moveTo(11, 0);
-    mc.lineTo(-7, 7);
+    mc.lineTo(-8, 7);
     mc.lineTo(-3, 0);
-    mc.lineTo(-7, -7);
+    mc.lineTo(-8, -7);
     mc.closePath();
     
+    // Pure bright white interior
     mc.fillStyle = '#ffffff';
     mc.fill();
+    
+    // Clear black outline without shadow bleed to keep edge sharp
+    mc.shadowBlur = 0; mc.shadowOffsetX = 0; mc.shadowOffsetY = 0;
     mc.strokeStyle = '#000000';
-    mc.lineWidth = 2.0;
+    mc.lineWidth = 1.5;
     mc.stroke();
     mc.restore();
   }
