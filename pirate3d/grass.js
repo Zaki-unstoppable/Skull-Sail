@@ -8,9 +8,9 @@
 
 const BLADE_COUNT = 80000;
 const SPREAD_RADIUS = 50;  // grass coverage radius per island
-const BLADE_WIDTH = 0.15;
-const BLADE_HEIGHT_MIN = 0.8;
-const BLADE_HEIGHT_MAX = 2.2;
+const BLADE_WIDTH = 0.1;
+const BLADE_HEIGHT_MIN = 0.2;
+const BLADE_HEIGHT_MAX = 0.5;
 
 // Grass blade geometry — tapered triangle strip (3 segments)
 function createBladeGeometry(){

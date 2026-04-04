@@ -170,17 +170,7 @@ function createIslandGround(){
 setLoad(20, 'Building island...');
 const island = createIslandGround();
 
-// Instanced grass field — 8000 blades on the grass disc (radius 20, groundY 0.5)
-let _babylonGrassField = null;
-if(window.createBabylonGrassField){
-  _babylonGrassField = window.createBabylonGrassField(
-    scene,
-    new BABYLON.Vector3(0, 0, 0), // island center
-    18,                            // radius (grass disc is diameter 40, so r=20, slight inset)
-    0.5,                           // groundY — top of grass disc
-    8000
-  );
-}
+let _babylonGrassField = null; // created after all geometry is built
 
 // ============================================================
 // 4. AUTHORED BUILDING — EXTERIOR + INTERIOR
@@ -977,7 +967,7 @@ function createDoorLeaf(building){
     interactType: 'door',
     isOpen: false,
     animating: false,
-    openAngle: -Math.PI * 0.45,
+    openAngle: Math.PI * 0.45,
     closedAngle: 0,
     promptOpen: 'Open Door',
     promptClose: 'Close Door'
@@ -2321,6 +2311,20 @@ function updateLootPopup(dt){
 }
 
 // ============================================================
+// 7b. INSTANCED GRASS — after all geometry so collision check works
+// ============================================================
+if(window.createBabylonGrassField){
+  _babylonGrassField = window.createBabylonGrassField(
+    scene,
+    new BABYLON.Vector3(0, 0, 0),
+    18,     // radius — inset from grass disc edge
+    0.5,    // groundY — top of grass disc
+    80000
+  );
+  console.log('[Grass] Placed', _babylonGrassField.bladeCount, 'blades, exclusions:', _babylonGrassField.exclusionCount, 'skipped:', _babylonGrassField.skipped);
+}
+
+// ============================================================
 // 8. PLAYER CONTROLLER — First Person
 // ============================================================
 setLoad(70, 'Setting up player...');
@@ -2838,6 +2842,39 @@ function startWorldTransition(){
 }
 
 // ============================================================
+// 10b. PALM TREE WIND ANIMATION
+// ============================================================
+// Cache palm meshes for animation
+const _palmTrunks = [];
+const _palmFronds = [];
+scene.meshes.forEach(m => {
+  const n = m.name || '';
+  if(n.startsWith('palm')) {
+    _palmTrunks.push({ mesh: m, baseRotZ: m.rotation.z, px: m.position.x, pz: m.position.z });
+  }
+  if(n === 'frond') {
+    _palmFronds.push({ mesh: m, baseRotX: m.rotation.x, baseRotZ: m.rotation.z, px: m.position.x, pz: m.position.z });
+  }
+});
+
+function animatePalms(t){
+  // Fronds: smooth sway matching grass wind function
+  for(var i = 0; i < _palmFronds.length; i++){
+    var f = _palmFronds[i];
+    var wave = Math.sin(f.px * 0.05 + f.pz * 0.03 + t * 1.5) * 0.12
+             + Math.sin(f.px * 0.03 - f.pz * 0.04 + t * 1.0 + 2.0) * 0.06;
+    f.mesh.rotation.x = f.baseRotX + wave;
+    f.mesh.rotation.z = f.baseRotZ + wave * 0.5;
+  }
+  // Trunks: very subtle sway (1/10th of frond movement)
+  for(var j = 0; j < _palmTrunks.length; j++){
+    var tr = _palmTrunks[j];
+    var sway = Math.sin(tr.px * 0.04 + t * 1.2) * 0.012;
+    tr.mesh.rotation.z = tr.baseRotZ + sway;
+  }
+}
+
+// ============================================================
 // 11. RENDER LOOP + ASYNC INIT
 // ============================================================
 setLoad(90, 'Starting engine...');
@@ -2856,6 +2893,8 @@ scene.registerBeforeRender(() => {
   updateHUD();
   updateDebug();
   if(_babylonGrassField) _babylonGrassField.update(now / 1000);
+  // Palm tree wind — fronds sway smoothly, trunks barely move
+  animatePalms(now / 1000);
 });
 
 engine.runRenderLoop(() => scene.render());

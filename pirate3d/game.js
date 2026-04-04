@@ -149,152 +149,340 @@ for(let i=0;i<45;i++){
   clouds.push(makeCloud((Math.random()-0.5)*WORLD*2.5,y,(Math.random()-0.5)*WORLD*2.5,s));
 }
 
-// ============ OCEAN — calm Caribbean Gerstner waves ============
-// Slow, gentle rolling swells. Time scaled down 10x so waves crawl realistically.
-// Deep-water dispersion: c = sqrt(g/k), but uTime runs at 0.1x real-time.
-// Amplitudes kept very low — gentle 0.3m–0.06m swells, not storm waves.
-const oceanGeo=new THREE.PlaneGeometry(WORLD*3,WORLD*3,200,200);
-const oceanUniforms={uTime:{value:0},uSunDir:{value:new THREE.Vector3(0.5,0.75,0.37).normalize()}};
-const oceanMat=new THREE.ShaderMaterial({
-  uniforms:oceanUniforms,
-  vertexShader:`
-    varying vec3 vWorldPos;
-    varying vec2 vAbsCoord;
-    varying vec3 vNormal;
-    uniform float uTime;
+// ============ OCEAN ============
+// GPU Gems Ch.1 standard: directional Gerstner swell + layered normal-map detail.
+// Deep-water dispersion c = sqrt(g/k). Horizontal + vertical displacement.
+// Spectral/Tessendorf FFT upgrade path: replace Gerstner sum with IFFT of
+// Phillips/JONSWAP spectrum rendered to displacement map. Not built this pass.
+//
+// --- TUNING BLOCK (all ocean appearance knobs in one place) ---
+const OCEAN_TUNE = {
+  // Geometric swell — Gerstner vertex displacement (GPU Gems Ch.1 model)
+  // Higher timeScale = faster wave travel; lower = calmer.
+  timeScale:       0.38,
+  // 8 directional Gerstner waves with phase offsets (phi) so each wave peaks at
+  // different map locations — no two spots on the ocean look the same.
+  // Total max A ≈ 2.7; practical peaks ≈ 1.8 due to destructive interference.
+  swell: [
+    { dir:[ 0.94,  0.34], A:0.85, L:190.0, Q:0.45, phi: 0.00 },  // long rolling swell
+    { dir:[-0.91,  0.42], A:0.60, L:115.0, Q:0.42, phi: 2.09 },  // cross swell
+    { dir:[ 0.42,  0.91], A:0.42, L: 68.0, Q:0.50, phi: 4.19 },  // secondary
+    { dir:[-0.87, -0.50], A:0.30, L: 44.0, Q:0.55, phi: 1.26 },  // medium chop
+    { dir:[ 0.77, -0.64], A:0.22, L: 30.0, Q:0.58, phi: 3.67 },  // short steep chop
+    { dir:[-0.09,  1.00], A:0.14, L: 20.0, Q:0.55, phi: 5.50 },  // fine chop
+    { dir:[-1.00,  0.00], A:0.09, L: 14.0, Q:0.50, phi: 0.79 },  // micro
+    { dir:[ 0.50,  0.87], A:0.05, L:  9.0, Q:0.45, phi: 2.88 },  // ripple
+  ],
+  // Normal-map detail layers (fragment-only, no vertex displacement).
+  // Each layer rotates UV space by `angle` degrees to break axis-aligned tiling.
+  // scale = world units per tile, amp = perturbation strength,
+  // speed = world-unit scroll rate, angle = UV rotation (deg).
+  nrmLayer1: { scale:30.0, amp:0.55, speed:0.30, angle: 22 },  // broad, slow
+  nrmLayer2: { scale:12.0, amp:0.45, speed:0.22, angle:152 },  // medium, counter
+  nrmLayer3: { scale: 5.0, amp:0.35, speed:0.35, angle: 83 },  // fine detail
+  surfacePatternStrength: 1.0,   // full normal-detail strength
+  // Lighting — two-lobe specular: sharp glints + broad sun road
+  specGlintExp:      150.0,  // individual wave-crest glints
+  specGlintStr:      1.0,    // glint brightness
+  specRoadExp:         6.0,  // broad sun-road glow across water
+  specRoadStr:        0.20,  // sun-road brightness
+  fresnelStrength:   0.60,   // sky reflection blend
+  fresnelF0:         0.02,   // Schlick F0 for water (IOR ≈ 1.33)
+  // Color
+  deepColor:    [0.03, 0.10, 0.28],
+  shallowColor: [0.08, 0.32, 0.50],
+  skyReflect:   [0.55, 0.72, 0.88],
+  scatterColor: [0.06, 0.25, 0.35],
+  // Foam
+  foamThreshold:  0.55,  // wave height fraction where foam starts (higher = less foam)
+  foamIntensity:  0.50,  // max foam opacity
+  // Atmosphere
+  hazeDensity: 0.00015
+};
 
-    vec3 gerstner(vec2 pos, vec2 dir, float A, float L, float steep, float t, inout vec3 nrm){
-      float k = 6.28318 / L;
-      float c = sqrt(9.81 / k);
-      float phase = k * dot(dir, pos) - c * t;
-      float s = sin(phase), co = cos(phase);
-      float Q = steep / (k * A + 0.001);
-      nrm += vec3(dir.x * k * A * co, Q * k * A * s, dir.y * k * A * co);
-      return vec3(Q * A * dir.x * co, A * s, Q * A * dir.y * co);
+// --- Textures ---
+const _texLoader = new THREE.TextureLoader();
+const _waterNormalTex = _texLoader.load('water_normal.png', function(tex){
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipMapLinearFilter;
+});
+const _waterFoamTex = _texLoader.load('water_foam.png', function(tex){
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+});
+const _waterNoiseTex = _texLoader.load('water_noise.png', function(tex){
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+});
+
+// Shared caustic uniforms — updated each frame by animOcean
+const _causticU = {
+  uTime:   { value: 0 },
+  uCTex:   { value: _waterNoiseTex },
+  uWaterY: { value: 0 }
+};
+
+// Wave-sim stub — noop this pass.
+// TODO (Tessendorf pass): replace with ping-pong RT wave propagation or
+// IFFT of Phillips spectrum rendered to displacement + normal textures.
+function stepWaveSim(renderer, dt){ /* noop */ }
+
+// --- Build GLSL swell table from OCEAN_TUNE ---
+function _buildSwellGLSL(){
+  var lines = [];
+  var S = OCEAN_TUNE.swell;
+  for(var i = 0; i < S.length; i++){
+    var d = S[i].dir, len = Math.sqrt(d[0]*d[0]+d[1]*d[1]);
+    var dx = (d[0]/len).toFixed(5), dz = (d[1]/len).toFixed(5);
+    lines.push('disp += gerstner(p, vec2('+dx+','+dz+'), '+
+      S[i].A.toFixed(4)+', '+S[i].L.toFixed(1)+', '+S[i].Q.toFixed(3)+', '+
+      (S[i].phi||0).toFixed(4)+', t, nrm);');
+  }
+  return lines.join('\n      ');
+}
+
+// --- Convert normal-layer angles to radians for GLSL UV rotation ---
+function _nrmAngleRad(angleDeg){
+  return (angleDeg * Math.PI / 180).toFixed(4);
+}
+var _nr1 = _nrmAngleRad(OCEAN_TUNE.nrmLayer1.angle);
+var _nr2 = _nrmAngleRad(OCEAN_TUNE.nrmLayer2.angle);
+var _nr3 = _nrmAngleRad(OCEAN_TUNE.nrmLayer3.angle);
+
+// --- Ocean geometry + material ---
+const oceanGeo = new THREE.PlaneGeometry(WORLD*1.5, WORLD*1.5, 512, 512);
+const oceanUniforms = {
+  uTime:    { value: 0 },
+  uSunDir:  { value: new THREE.Vector3(0.5, 0.75, 0.37).normalize() },
+  uCamPos:  { value: new THREE.Vector3() },
+  uNormalMap: { value: _waterNormalTex },
+  uFoamMap:   { value: _waterFoamTex }
+};
+
+const oceanMat = new THREE.ShaderMaterial({
+  uniforms: oceanUniforms,
+  vertexShader: `
+    varying vec3  vWorldPos;
+    varying vec2  vWorldXZ;
+    varying vec3  vGeomNormal;
+    varying float vWaveH;
+    varying float vSteep;
+    varying float vDist;
+    uniform float uTime;
+    uniform vec3  uCamPos;
+
+    // GPU Gems Ch.1 Gerstner wave (Eq.9) with horizontal + vertical displacement.
+    // dir = normalized propagation direction, A = amplitude, L = wavelength,
+    // Q = steepness Q_i in [0,1]. nrm accumulates partials for analytic normal (Eq.10).
+    vec3 gerstner(vec2 pos, vec2 dir, float A, float L, float Q, float phi, float t, inout vec3 nrm){
+      float k  = 6.28318 / L;
+      float c  = sqrt(9.81 / k);            // deep-water phase velocity
+      float f  = k * dot(dir, pos) - c * t + phi;  // phase + offset
+      float sn = sin(f);
+      float co = cos(f);
+      // GPU Gems Eq.10 analytic normal accumulation:
+      // N = (-sum D.x*k*A*cos, 1 - sum Q*k*A*sin, -sum D.y*k*A*cos)
+      nrm.x += dir.x * k * A * co;
+      nrm.y += Q * k * A * sn;
+      nrm.z += dir.y * k * A * co;
+      // Displacement (Eq.9): horizontal Q*A*D*cos + vertical A*sin
+      return vec3(Q * A * dir.x * co,
+                  A * sn,
+                  Q * A * dir.y * co);
     }
 
     void main(){
       vec3 pos = position;
-      vec4 wp4 = modelMatrix * vec4(pos, 1.0);
-      vAbsCoord = vec2(wp4.x, wp4.z);
-      vec2 p = vAbsCoord;
+      vec4 wp  = modelMatrix * vec4(pos, 1.0);
+      vWorldXZ = vec2(wp.x, wp.z);
+      vec2 p   = vWorldXZ;
 
-      // Slow time — 10x slower than real-time so waves crawl
-      float t = uTime * 0.1;
+      float t = uTime * ` + OCEAN_TUNE.timeScale.toFixed(4) + `;
+      float camDist = length(vec2(wp.x - uCamPos.x, wp.z - uCamPos.z));
+      vDist = camDist;
 
       vec3 disp = vec3(0.0);
-      vec3 nrm = vec3(0.0);
+      vec3 nrm  = vec3(0.0);
 
-      // 3 very long, gentle swells — dominant feel of calm open ocean
-      disp += gerstner(p, normalize(vec2(0.7, 0.4)),  0.35, 180.0, 0.12, t, nrm);
-      disp += gerstner(p, normalize(vec2(0.85,-0.15)), 0.20, 120.0, 0.10, t, nrm);
-      disp += gerstner(p, normalize(vec2(-0.25, 0.8)), 0.12, 75.0,  0.08, t, nrm);
+      // Directional Gerstner swell (GPU Gems Ch.1 table)
+      ` + _buildSwellGLSL() + `
 
-      // 2 subtle detail waves — just enough surface variation to catch light
-      disp += gerstner(p, normalize(vec2(0.5, -0.5)),  0.04, 25.0, 0.06, t, nrm);
-      disp += gerstner(p, normalize(vec2(-0.6, 0.6)),  0.02, 10.0, 0.04, t, nrm);
+      // Distance-based amplitude taper to avoid popping at far grid edges
+      float distFade = smoothstep(3000.0, 1000.0, camDist);
+      disp *= mix(0.25, 1.0, distFade);
+      nrm  *= mix(0.25, 1.0, distFade);
 
+      // Apply displacement in local space (PlaneGeometry XY, rotated -PI/2 to XZ world)
       pos.x += disp.x;
-      pos.y += disp.z;
-      pos.z  = disp.y;
+      pos.y += disp.z;   // local Y maps to world -Z
+      pos.z  = disp.y;   // local Z maps to world Y (height)
 
-      vNormal = normalize(vec3(-nrm.x, 1.0 - nrm.y, -nrm.z));
-      vWorldPos = (modelMatrix * vec4(pos, 1.0)).xyz;
+      vWaveH = disp.y;
+      // Analytic normal from accumulated Gerstner partials (GPU Gems Eq.10)
+      vGeomNormal = normalize(vec3(-nrm.x, 1.0 - nrm.y, -nrm.z));
+      vWorldPos   = (modelMatrix * vec4(pos, 1.0)).xyz;
+      vSteep      = length(vec2(nrm.x, nrm.z));
+
       gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
     }
   `,
-  fragmentShader:`
-    varying vec3 vWorldPos;
-    varying vec2 vAbsCoord;
-    varying vec3 vNormal;
-    uniform float uTime;
-    uniform vec3 uSunDir;
+  fragmentShader: `
+    precision highp float;
+    varying vec3  vWorldPos;
+    varying vec2  vWorldXZ;
+    varying vec3  vGeomNormal;
+    varying float vWaveH;
+    varying float vSteep;
+    varying float vDist;
 
-    // Subtle normal perturbation — micro-ripples via cheap trig noise
-    vec3 microNormal(vec2 p, float t){
-      float st = t * 0.04;
-      float nx = sin(p.x * 0.5 + st * 1.1) * cos(p.y * 0.4 + st * 0.9) * 0.008
-               + sin(p.x * 1.2 + p.y * 0.8 + st * 2.3) * 0.004;
-      float nz = cos(p.x * 0.3 + st * 0.7) * sin(p.y * 0.6 + st * 1.3) * 0.008
-               + cos(p.x * 0.9 + p.y * 1.1 + st * 1.9) * 0.004;
-      return vec3(nx, 0.0, nz);
+    uniform float     uTime;
+    uniform vec3      uSunDir;
+    uniform vec3      uCamPos;
+    uniform sampler2D uNormalMap;
+    uniform sampler2D uFoamMap;
+
+    // Normal-map sampling with UV rotation to break axis-aligned tiling.
+    // rot = rotation angle (radians), applied to UV before scrolling.
+    vec2 sampleNrm(vec2 wc, float scale, float speed, float rot, float t){
+      vec2 uv = wc / scale;
+      float cs = cos(rot), sn = sin(rot);
+      uv = vec2(uv.x * cs - uv.y * sn, uv.x * sn + uv.y * cs);
+      uv += vec2(cs, sn) * t * speed / scale;
+      return (texture2D(uNormalMap, uv).xy * 2.0 - 1.0);
     }
 
     void main(){
-      // Deep Caribbean blues — reference: Bora Bora / Turks & Caicos
-      vec3 deepBlue  = vec3(0.005, 0.06, 0.22);
-      vec3 midBlue   = vec3(0.015, 0.16, 0.38);
-      vec3 shallowCyan = vec3(0.04, 0.32, 0.52);
-      vec3 skyReflect  = vec3(0.42, 0.62, 0.78);
+      float dist01 = mix(0.20, 1.0, 1.0 - smoothstep(200.0, 1500.0, vDist));  // never fully flat
+      float t = uTime * ` + OCEAN_TUNE.timeScale.toFixed(4) + `;
 
-      vec3 viewDir = normalize(cameraPosition - vWorldPos);
+      // === Multi-octave normal detail (3 rotated layers — no axis alignment) ===
+      vec2 n1 = sampleNrm(vWorldXZ, `+OCEAN_TUNE.nrmLayer1.scale.toFixed(1)+`, `+OCEAN_TUNE.nrmLayer1.speed.toFixed(2)+`, `+_nr1+`, t) * `+OCEAN_TUNE.nrmLayer1.amp.toFixed(2)+`;
+      vec2 n2 = sampleNrm(vWorldXZ, `+OCEAN_TUNE.nrmLayer2.scale.toFixed(1)+`, `+OCEAN_TUNE.nrmLayer2.speed.toFixed(2)+`, `+_nr2+`, t) * `+OCEAN_TUNE.nrmLayer2.amp.toFixed(2)+`;
+      vec2 n3 = sampleNrm(vWorldXZ, `+OCEAN_TUNE.nrmLayer3.scale.toFixed(1)+`, `+OCEAN_TUNE.nrmLayer3.speed.toFixed(2)+`, `+_nr3+`, t) * `+OCEAN_TUNE.nrmLayer3.amp.toFixed(2)+`;
+      vec2 detailNrm = (n1 + n2 + n3) / 3.0 * `+OCEAN_TUNE.surfacePatternStrength.toFixed(2)+`;
 
-      // Add micro-ripples to geometric normal
-      vec3 N = normalize(vNormal + microNormal(vAbsCoord, uTime));
+      // Blend geometric Gerstner normal with detail normal
+      vec3 N = vGeomNormal;
+      N.xz += detailNrm * dist01;
+      N = normalize(N);
 
-      // Height-based deep→shallow blend
-      float h = smoothstep(-0.8, 0.6, vWorldPos.y);
-      vec3 col = mix(deepBlue, midBlue, h);
-      col = mix(col, shallowCyan, h * h * 0.4);
+      vec3 V = normalize(cameraPosition - vWorldPos);
 
-      // Subsurface scattering — warm green-blue glow through wave peaks
-      float sssAngle = max(0.0, dot(viewDir, -normalize(uSunDir - N * 0.3)));
-      float sss = pow(sssAngle, 4.0) * h;
-      col += vec3(0.0, 0.06, 0.04) * sss * 1.5;
+      // === Depth-based absorption (Beer-Lambert) ===
+      float waterThick = vWorldPos.y + 8.5;
+      float viewUp = max(dot(V, vec3(0.0, 1.0, 0.0)), 0.05);
+      float optDepth = waterThick / viewUp;
+      float depthFac = 1.0 - exp(-optDepth * 0.12);
 
-      // Sun specular — sharp point highlight
-      vec3 halfV = normalize(uSunDir + viewDir);
-      float spec = pow(max(dot(N, halfV), 0.0), 400.0);
-      col += vec3(1.0, 0.97, 0.90) * spec * 0.6;
+      // === Water color: height-based deep/shallow blend ===
+      float h = smoothstep(-0.5, 0.6, vWaveH);
+      vec3 deep    = vec3(`+OCEAN_TUNE.deepColor.join(',')+`);
+      vec3 shallow = vec3(`+OCEAN_TUNE.shallowColor.join(',')+`);
+      vec3 col = mix(deep, shallow, h);
+      col = mix(col, col * vec3(0.6, 0.88, 1.0), depthFac * 0.35);
 
-      // Broad sparkle layer — gives life to the surface
-      float sparkle = pow(max(dot(N, halfV), 0.0), 24.0);
-      col += vec3(0.7, 0.78, 0.85) * sparkle * 0.05;
+      // Subsurface scattering (sun through wave peaks)
+      vec3 scatterCol = vec3(`+OCEAN_TUNE.scatterColor.join(',')+`);
+      float sssDot = max(0.0, dot(V, -uSunDir));
+      float sss = pow(sssDot, 3.0) * h * 1.5;
+      col += scatterCol * sss;
 
-      // Schlick fresnel — physically correct F0 for water = 0.02
-      float cosTheta = max(dot(N, viewDir), 0.0);
-      float fresnel = 0.02 + 0.98 * pow(1.0 - cosTheta, 5.0);
-      col = mix(col, skyReflect, fresnel * 0.5);
+      // === Schlick Fresnel (IOR 1.33, F0 0.02) ===
+      float cosT  = max(dot(N, V), 0.0);
+      float fres  = `+OCEAN_TUNE.fresnelF0.toFixed(3)+` + (1.0 - `+OCEAN_TUNE.fresnelF0.toFixed(3)+`) * pow(clamp(1.0 - cosT, 0.0, 1.0), 5.0);
+      vec3 skyRef = vec3(`+OCEAN_TUNE.skyReflect.join(',')+`);
+      col = mix(col, skyRef, fres * `+OCEAN_TUNE.fresnelStrength.toFixed(3)+`);
 
-      // Very subtle foam only on tallest crests
-      float crest = smoothstep(0.3, 0.6, vWorldPos.y);
-      float foamPattern = sin(vAbsCoord.x * 0.15 + uTime * 0.015) * sin(vAbsCoord.y * 0.12 + uTime * 0.01);
-      foamPattern = foamPattern * 0.5 + 0.5;
-      col = mix(col, vec3(0.88, 0.93, 0.98), crest * foamPattern * 0.12);
+      // === Sun specular — two lobes: sharp glints + broad sun road ===
+      vec3 sunCol = vec3(1.0, 0.94, 0.82);
+      vec3 H     = normalize(uSunDir + V);
+      float NdH  = max(dot(N, H), 0.0);
+      float glint = pow(NdH, `+OCEAN_TUNE.specGlintExp.toFixed(1)+`) * `+OCEAN_TUNE.specGlintStr.toFixed(3)+`;
+      float road  = pow(NdH, `+OCEAN_TUNE.specRoadExp.toFixed(1)+`) * `+OCEAN_TUNE.specRoadStr.toFixed(3)+`;
+      col += sunCol * (glint + road);
 
-      // Atmospheric haze
-      float dist = length(cameraPosition - vWorldPos);
-      float haze = 1.0 - exp(-dist * 0.00015);
-      col = mix(col, vec3(0.50, 0.66, 0.80), haze);
+      // === Foam on wave crests ===
+      float foamH = smoothstep(`+OCEAN_TUNE.foamThreshold.toFixed(2)+`, 1.0, vWaveH / 2.0);
+      float foamS = smoothstep(0.25, 0.55, vSteep);
+      float foamRaw = foamH * foamS;
+      vec2 foamUV = vWorldXZ * 0.10 + vec2(t * 0.06, t * 0.04);
+      float foamTex = texture2D(uFoamMap, foamUV).r;
+      float foam = clamp(foamRaw - (1.0 - foamTex), 0.0, 1.0);
+      float foamVis = smoothstep(0.0, 0.35, foam) * `+OCEAN_TUNE.foamIntensity.toFixed(2)+`;
+      col = mix(col, vec3(0.90, 0.93, 0.96), foamVis);
 
-      gl_FragColor = vec4(col, 0.94);
+      // === Atmospheric haze ===
+      float haze = 1.0 - exp(-vDist * `+OCEAN_TUNE.hazeDensity.toFixed(6)+`);
+      col = mix(col, vec3(0.52, 0.68, 0.84), haze);
+
+      // === Transparency — depth-based absorption ===
+      float alpha = mix(0.30, 0.92, depthFac);
+      alpha = mix(alpha, 1.0, haze * 0.8);
+      alpha = mix(alpha, 1.0, foamVis * 0.4);
+
+      gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.95));
     }
   `,
-  transparent:true,side:THREE.DoubleSide
+  transparent: true, side: THREE.DoubleSide, depthWrite: false
 });
-const ocean=new THREE.Mesh(oceanGeo,oceanMat);ocean.rotation.x=-Math.PI/2;ocean.position.y=-0.5;scene.add(ocean);
 
-// Deep ocean floor
-const ocean2Geo=new THREE.PlaneGeometry(WORLD*3,WORLD*3,40,40);
-const ocean2=new THREE.Mesh(ocean2Geo,new THREE.MeshBasicMaterial({color:0x041828}));
-ocean2.rotation.x=-Math.PI/2;ocean2.position.y=-8;scene.add(ocean2);
+const ocean = new THREE.Mesh(oceanGeo, oceanMat);
+ocean.rotation.x = -Math.PI / 2;
+ocean.position.y = -0.5;
+scene.add(ocean);
 
-// Buoyancy — matches vertex shader exactly (same wave params + 0.1x time)
-function getWaveH(x,z,t){
-  t *= 0.1; // must match shader slow-time
-  function gW(px,pz,dx,dz,A,L){
-    var k=6.28318/L,c=Math.sqrt(9.81/k);
-    return A*Math.sin(k*(dx*px+dz*pz)-c*t);
+// Deep ocean floor with animated caustic light patterns
+const ocean2Geo = new THREE.PlaneGeometry(WORLD*1.5, WORLD*1.5, 4, 4);
+const ocean2Mat = new THREE.ShaderMaterial({
+  uniforms: { uTime: _causticU.uTime, uCTex: _causticU.uCTex },
+  vertexShader: `
+    varying vec2 vWXZ;
+    void main(){
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vWXZ = wp.xz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform float uTime;
+    uniform sampler2D uCTex;
+    varying vec2 vWXZ;
+    void main(){
+      vec2 u1 = vWXZ * 0.04 + uTime * vec2(0.012, 0.009);
+      vec2 u2 = vWXZ * 0.025 + uTime * vec2(-0.008, 0.013);
+      float c1 = texture2D(uCTex, u1).r;
+      float c2 = texture2D(uCTex, u2).r;
+      float caust = pow(c1 * c2, 0.7) * 2.5;
+      vec3 base = vec3(0.015, 0.04, 0.10);
+      vec3 lit  = vec3(0.06, 0.15, 0.28);
+      gl_FragColor = vec4(base + lit * caust, 1.0);
+    }
+  `
+});
+const ocean2 = new THREE.Mesh(ocean2Geo, ocean2Mat);
+ocean2.rotation.x = -Math.PI / 2;
+ocean2.position.y = -8;
+scene.add(ocean2);
+
+// === Buoyancy — matches vertex shader Gerstner table exactly ===
+function getWaveH(x, z, t){
+  t *= OCEAN_TUNE.timeScale;
+  var h = 0;
+  var S = OCEAN_TUNE.swell;
+  for(var i = 0; i < S.length; i++){
+    var d = S[i].dir, len = Math.sqrt(d[0]*d[0]+d[1]*d[1]);
+    var dx = d[0]/len, dz = d[1]/len;
+    var k = 6.28318 / S[i].L;
+    var c = Math.sqrt(9.81 / k);
+    h += S[i].A * Math.sin(k * (dx*x + dz*z) - c * t + (S[i].phi||0));
   }
-  var d1=0.7,d2=0.4,l1=Math.sqrt(d1*d1+d2*d2);d1/=l1;d2/=l1;
-  var d3=0.85,d4=-0.15,l2=Math.sqrt(d3*d3+d4*d4);d3/=l2;d4/=l2;
-  var d5=-0.25,d6=0.8,l3=Math.sqrt(d5*d5+d6*d6);d5/=l3;d6/=l3;
-  var d7=0.5,d8=-0.5,l4=Math.sqrt(d7*d7+d8*d8);d7/=l4;d8/=l4;
-  var d9=-0.6,d10=0.6,l5=Math.sqrt(d9*d9+d10*d10);d9/=l5;d10/=l5;
-  return gW(x,z,d1,d2,0.35,180)+gW(x,z,d3,d4,0.20,120)+gW(x,z,d5,d6,0.12,75)+gW(x,z,d7,d8,0.04,25)+gW(x,z,d9,d10,0.02,10);
+  return h;
 }
 function animOcean(t){
-  oceanUniforms.uTime.value=t;
+  oceanUniforms.uTime.value = t;
+  oceanUniforms.uCamPos.value.copy(camera.position);
+  // Drive caustic animations (ocean floor + hull)
+  _causticU.uTime.value = t;
+  if(typeof P !== 'undefined') _causticU.uWaterY.value = getWaveH(P.x, P.z, t);
 }
 
 // ============ WAKE ============
@@ -352,11 +540,51 @@ function updateWake(dt){
 }
 
 // ============ BUILD DETAILED SHIP ============
+// === Caustic-enhanced hull material (animated underwater light + waterline weathering) ===
+function _causticHull(color, shininess){
+  var mat = new THREE.MeshPhongMaterial({color: color, flatShading: false, shininess: shininess || 25});
+  mat.onBeforeCompile = function(shader){
+    shader.uniforms.uCTime  = _causticU.uTime;
+    shader.uniforms.uCTex   = _causticU.uCTex;
+    shader.uniforms.uWaterY = _causticU.uWaterY;
+    // Vertex: pass world position
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <common>',
+      '#include <common>\nvarying vec3 vCWP;'
+    );
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <fog_vertex>',
+      'vCWP = vec3(modelMatrix * vec4(transformed, 1.0));\n#include <fog_vertex>'
+    );
+    // Fragment: caustics below waterline + waterline weathering
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <common>',
+      '#include <common>\nuniform float uCTime;\nuniform sampler2D uCTex;\nuniform float uWaterY;\nvarying vec3 vCWP;'
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <output_fragment>',
+      'float _sub = smoothstep(uWaterY + 0.3, uWaterY - 2.5, vCWP.y);\n' +
+      'if(_sub > 0.0){\n' +
+      '  vec2 _u1 = vCWP.xz*0.12 + uCTime*vec2(0.03,0.02);\n' +
+      '  vec2 _u2 = vCWP.xz*0.07 + uCTime*vec2(-0.02,0.035);\n' +
+      '  float _c = pow(texture2D(uCTex,_u1).r * texture2D(uCTex,_u2).r, 0.6) * 3.0;\n' +
+      '  float _df = 1.0 - smoothstep(0.0, 3.5, uWaterY - vCWP.y);\n' +
+      '  outgoingLight += vec3(0.15,0.35,0.50) * _c * _sub * _df * 0.5;\n' +
+      '}\n' +
+      'float _wl = smoothstep(uWaterY+1.0, uWaterY-0.3, vCWP.y);\n' +
+      'outgoingLight *= mix(1.0, 0.55, _wl*0.5);\n' +
+      'outgoingLight = mix(outgoingLight, outgoingLight*vec3(0.65,0.78,0.55), _wl*0.3);\n' +
+      'gl_FragColor = vec4(outgoingLight, diffuseColor.a);'
+    );
+  };
+  return mat;
+}
+
 function buildShip(opts){
   const g=new THREE.Group();
   const {hullCol,hullDark,deckCol,sailCol,scale,withCabin,withSecondMast}=opts;
   const L=6,W=2.2,H=1.6; // hull length, width, height
-  const hMat=new THREE.MeshPhongMaterial({color:hullCol,flatShading:false,shininess:25});
+  const hMat=_causticHull(hullCol, 25);
   const dkMat=new THREE.MeshPhongMaterial({color:hullDark||0x3a2010});
   const deckC=deckCol||0xA0823A;
 
@@ -610,6 +838,18 @@ function buildShip(opts){
     cab.position.set(-L*0.3,1.87,0);g.add(cab);
     const roof=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.06,W*0.7),new THREE.MeshPhongMaterial({color:0x3a2010}));
     roof.position.set(-L*0.3,2.21,0);g.add(roof);
+  }
+
+  // Figurehead at bow
+  const fhMat=new THREE.MeshPhongMaterial({color:0xc8a020,specular:0xffdd44,shininess:50});
+  const fhBody=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.10,0.7,6),fhMat);
+  fhBody.position.set(L/2+0.5,-0.15,0);fhBody.rotation.z=-0.7;g.add(fhBody);
+  const fhHead=new THREE.Mesh(new THREE.SphereGeometry(0.10,6,5),fhMat);
+  fhHead.position.set(L/2+0.82,-0.45,0);g.add(fhHead);
+  // Figurehead wings (decorative scrollwork)
+  for(let s of[-1,1]){
+    const wing=new THREE.Mesh(new THREE.BoxGeometry(0.35,0.04,0.15),fhMat);
+    wing.position.set(L/2+0.45,0.05,s*0.25);wing.rotation.z=-0.3;wing.rotation.y=s*0.4;g.add(wing);
   }
 
   g.scale.setScalar(scale);
@@ -2703,10 +2943,10 @@ function update(dt){
     let wh=getWaveH(P.x,P.z,time);
     shipMesh.position.set(P.x,wh,P.z);
     shipMesh.rotation.y=-P.angle;
-    let whF=getWaveH(P.x+Math.cos(P.angle)*5,P.z+Math.sin(P.angle)*5,time);
-    let whS=getWaveH(P.x+Math.cos(P.angle+1.57)*3,P.z+Math.sin(P.angle+1.57)*3,time);
-    shipMesh.rotation.z=-(whF-wh)*0.03;
-    shipMesh.rotation.x=(whS-wh)*0.03+leanAmount; // wave tilt + turn lean
+    let whF=getWaveH(P.x+Math.cos(P.angle)*8,P.z+Math.sin(P.angle)*8,time);
+    let whS=getWaveH(P.x+Math.cos(P.angle+1.57)*5,P.z+Math.sin(P.angle+1.57)*5,time);
+    shipMesh.rotation.z=-(whF-wh)*0.06;
+    shipMesh.rotation.x=(whS-wh)*0.06+leanAmount; // wave tilt + turn lean
 
     // Sails billow
     shipMesh.traverse(c=>{
@@ -2865,9 +3105,9 @@ function update(dt){
     let ewh=getWaveH(e.x,e.z,time);
     e.mesh.position.set(ew.x,ewh,ew.z);
     e.mesh.rotation.y=-e.angle;
-    let ewhF=getWaveH(e.x+Math.cos(e.angle)*3,e.z+Math.sin(e.angle)*3,time);
-    let ewhS=getWaveH(e.x+Math.cos(e.angle+1.57)*2,e.z+Math.sin(e.angle+1.57)*2,time);
-    e.mesh.rotation.z=-(ewhF-ewh)*0.025;e.mesh.rotation.x=(ewhS-ewh)*0.025;
+    let ewhF=getWaveH(e.x+Math.cos(e.angle)*6,e.z+Math.sin(e.angle)*6,time);
+    let ewhS=getWaveH(e.x+Math.cos(e.angle+1.57)*4,e.z+Math.sin(e.angle+1.57)*4,time);
+    e.mesh.rotation.z=-(ewhF-ewh)*0.05;e.mesh.rotation.x=(ewhS-ewh)*0.05;
 
     e.mesh.traverse(c=>{
       if(c.name==='sail'||c.name==='sail2'){let geo=c.geometry,pos=geo.attributes.position;let bl=0.3+e.speed/e.maxSpeed*0.4;for(let i=0;i<pos.count;i++){let ox=pos.getX(i);pos.setZ(i,Math.sin((pos.getY(i)+1)*1.1+time*1.3)*bl*(0.3+Math.abs(ox)*0.4));}pos.needsUpdate=true;}
@@ -3144,7 +3384,7 @@ let lastT=0;
 function loop(now){
   requestAnimationFrame(loop);
   let dt=Math.min((now-lastT)/1000,0.05);lastT=now;
-  if(gameStarted){update(dt);animOcean(time);for(let gf of _grassFields)gf.update(time);}
+  if(gameStarted){update(dt);animOcean(time);for(let gf of _grassFields)gf.update(time);stepWaveSim(renderer,dt);}
   renderer.render(scene,camera);
 }
 
